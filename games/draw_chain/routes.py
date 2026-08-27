@@ -19,7 +19,11 @@ from app.error_codes import create_error_code
 from app.games.common.drawing_board import (
     append_stroke_segment,
     append_stroke_segments,
+    canvases_equal,
+    default_vector_canvas,
+    normalize_canvas_mode,
     redo_player_stroke,
+    serialize_canvas,
     serialize_strokes,
     undo_player_stroke,
 )
@@ -297,8 +301,10 @@ def create_room(room_id: str) -> Dict:
         "draw_turn_token": "",
         "lobby_strokes": [],
         "lobby_redo": {},
+        "lobby_canvas": default_vector_canvas(),
         "game_strokes": [],
         "game_redo": {},
+        "game_canvas": default_vector_canvas(),
         "previous_game_strokes": [],
         "guess_prompt_word": "",
         "artworks": [],
@@ -630,6 +636,7 @@ def build_lobby_state(
         "owner_name": get_owner_name(room),
         "players": player_list(room),
         "artworks": serialize_artworks(room, player_id),
+        "canvas": serialize_canvas(room.get("lobby_canvas") or default_vector_canvas()),
     }
     if include_strokes:
         state["strokes"] = serialize_strokes(room["lobby_strokes"])
@@ -659,6 +666,34 @@ def can_modify_game_canvas(room: Dict, player_id: str, round_id: object) -> bool
         and not pdata.get("watching", False)
         and str(round_id or "") == room["round_id"]
     )
+
+
+def can_change_lobby_canvas_mode(room: Dict, player_id: str) -> bool:
+    """候场公共画布模式仅房主可改，且该玩家当前必须在大厅画布上。"""
+    pdata = room["players"].get(player_id) or {}
+    return (
+        player_id == room["owner_id"]
+        and player_id in lobby_canvas_player_ids(room)
+        and not pdata.get("spectator", False)
+        and not pdata.get("watching", False)
+    )
+
+
+def canvas_broadcast_payload(
+    event_type: str, canvas: Dict, strokes: List[Dict], extra: Optional[Dict] = None
+) -> Dict:
+    """组装画布模式广播：模式、尺寸，以及清笔触后的快照。"""
+    payload = {
+        "type": event_type,
+        "mode": canvas["mode"],
+        "width": canvas["width"],
+        "height": canvas["height"],
+        "strokes": serialize_strokes(strokes),
+        "canvas": serialize_canvas(canvas),
+    }
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 def build_game_state(
@@ -715,6 +750,10 @@ def build_game_state(
             "room"
             if activity_zone == "replay"
             else activity_zone
+        ),
+        "canvas": serialize_canvas(
+            (room.get("lobby_canvas") if canvas_scope == "lobby" else room.get("game_canvas"))
+            or default_vector_canvas()
         ),
     }
 
@@ -2203,15 +2242,18 @@ async def game_websocket(websocket: WebSocket):
 
             if msg_type == "drawing_sync_request":
                 if player_id in lobby_canvas_player_ids(room):
+                    lobby_canvas = room.get("lobby_canvas") or default_vector_canvas()
                     await send_json(
                         websocket,
                         {
                             "type": "drawing_sync",
                             "scope": "lobby",
                             "strokes": serialize_strokes(room["lobby_strokes"]),
+                            "canvas": serialize_canvas(lobby_canvas),
                         },
                     )
                 elif str(data.get("round_id", "")) == room["round_id"]:
+                    game_canvas = room.get("game_canvas") or default_vector_canvas()
                     await send_json(
                         websocket,
                         {
@@ -2219,6 +2261,7 @@ async def game_websocket(websocket: WebSocket):
                             "scope": "game",
                             "round_id": room["round_id"],
                             "strokes": serialize_strokes(room["game_strokes"]),
+                            "canvas": serialize_canvas(game_canvas),
                         },
                     )
                 continue
@@ -2324,6 +2367,32 @@ async def game_websocket(websocket: WebSocket):
                     room_id,
                     lobby_canvas_player_ids(room),
                     lobby_clear_message,
+                    exclude_id=player_id,
+                )
+                continue
+
+            if msg_type == "lobby_canvas_mode":
+                if not can_change_lobby_canvas_mode(room, player_id):
+                    await send_error(websocket, "只有候场中的房主可以修改公共画布")
+                    continue
+                try:
+                    next_canvas = normalize_canvas_mode(data)
+                except (TypeError, ValueError) as exc:
+                    await send_error(websocket, str(exc) or "画布设置无效")
+                    continue
+                current_canvas = room.get("lobby_canvas") or default_vector_canvas()
+                if not canvases_equal(current_canvas, next_canvas):
+                    room["lobby_strokes"] = keep_background_strokes(room["lobby_strokes"])
+                    room["lobby_redo"] = {}
+                room["lobby_canvas"] = next_canvas
+                canvas_message = canvas_broadcast_payload(
+                    "lobby_canvas_mode", next_canvas, room["lobby_strokes"]
+                )
+                await send_json(websocket, canvas_message)
+                await broadcast_to_players(
+                    room_id,
+                    lobby_canvas_player_ids(room),
+                    canvas_message,
                     exclude_id=player_id,
                 )
                 continue
@@ -2473,6 +2542,35 @@ async def game_websocket(websocket: WebSocket):
                     room_id,
                     game_canvas_player_ids(room),
                     clear_message,
+                    exclude_id=player_id,
+                )
+                continue
+
+            if msg_type == "canvas_mode":
+                if not can_modify_game_canvas(room, player_id, data.get("round_id")):
+                    await send_error(websocket, "当前不能修改画布模式")
+                    continue
+                try:
+                    next_canvas = normalize_canvas_mode(data)
+                except (TypeError, ValueError) as exc:
+                    await send_error(websocket, str(exc) or "画布设置无效")
+                    continue
+                current_canvas = room.get("game_canvas") or default_vector_canvas()
+                if not canvases_equal(current_canvas, next_canvas):
+                    room["game_strokes"] = keep_background_strokes(room["game_strokes"])
+                    room["game_redo"] = {}
+                room["game_canvas"] = next_canvas
+                canvas_message = canvas_broadcast_payload(
+                    "canvas_mode",
+                    next_canvas,
+                    room["game_strokes"],
+                    {"round_id": room["round_id"]},
+                )
+                await send_json(websocket, canvas_message)
+                await broadcast_to_players(
+                    room_id,
+                    game_canvas_player_ids(room),
+                    canvas_message,
                     exclude_id=player_id,
                 )
                 continue

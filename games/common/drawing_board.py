@@ -9,6 +9,60 @@ MAX_STROKES = 1000
 MAX_SEGMENTS_PER_STROKE = 5000
 VALID_TOOLS = {"brush", "eraser", "fill", "background"}
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+VECTOR_CANVAS_WIDTH = 960
+VECTOR_CANVAS_HEIGHT = 540
+PIXEL_CANVAS_MIN = 2
+PIXEL_CANVAS_MAX = 128
+DEFAULT_PIXEL_SIZE = 32
+
+
+def default_vector_canvas() -> Dict[str, object]:
+    """Return the default 16:9 vector canvas used by both lobby and game boards."""
+    return {
+        "mode": "vector",
+        "width": VECTOR_CANVAS_WIDTH,
+        "height": VECTOR_CANVAS_HEIGHT,
+    }
+
+
+def serialize_canvas(canvas: Dict) -> Dict[str, object]:
+    """Return the stable wire representation for a canvas mode payload."""
+    mode = "pixel" if canvas.get("mode") == "pixel" else "vector"
+    return {
+        "mode": mode,
+        "width": int(canvas.get("width") or VECTOR_CANVAS_WIDTH),
+        "height": int(canvas.get("height") or VECTOR_CANVAS_HEIGHT),
+    }
+
+
+def canvases_equal(left: Dict, right: Dict) -> bool:
+    """Return True when two canvas specs describe the same grid."""
+    return (
+        str(left.get("mode") or "vector") == str(right.get("mode") or "vector")
+        and int(left.get("width") or 0) == int(right.get("width") or 0)
+        and int(left.get("height") or 0) == int(right.get("height") or 0)
+    )
+
+
+def normalize_canvas_mode(data: object) -> Dict[str, object]:
+    """Validate vector/pixel canvas settings for room state and WebSocket payloads."""
+    payload = data if isinstance(data, dict) else {}
+    mode = str(payload.get("mode") or "vector")
+    if mode not in {"vector", "pixel"}:
+        raise ValueError("画布模式无效")
+    if mode == "vector":
+        return default_vector_canvas()
+    try:
+        width = int(payload.get("width", DEFAULT_PIXEL_SIZE))
+        height = int(payload.get("height", DEFAULT_PIXEL_SIZE))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("像素画板尺寸无效") from exc
+    if not (
+        PIXEL_CANVAS_MIN <= width <= PIXEL_CANVAS_MAX
+        and PIXEL_CANVAS_MIN <= height <= PIXEL_CANVAS_MAX
+    ):
+        raise ValueError("像素画板宽高必须在 2 到 128 之间")
+    return {"mode": "pixel", "width": width, "height": height}
 
 
 def _unit_float(value: object) -> float:

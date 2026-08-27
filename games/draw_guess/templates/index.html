@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/icons/icon-192.png?v=2" sizes="192x192">
   <link rel="stylesheet" href="/static/css/site.css?v=20260717b">
   <link rel="stylesheet" href="/static/games/draw-guess/css/theme.css?v=20260724a">
-  <link rel="stylesheet" href="/static/games/draw-guess/css/drawing-board.css?v=20260722b">
+  <link rel="stylesheet" href="/static/games/draw-guess/css/drawing-board.css?v=20260827c">
   <link rel="stylesheet" href="https://cdn.potatoblock.com/day-night-toggle-button/theme-button.css">
   <script src="https://cdn.potatoblock.com/day-night-toggle-button/theme-button.js"></script>
   <script>
@@ -758,6 +758,7 @@
           <div class="canvas-stage">
             <div class="canvas-stage-surface">
             <canvas id="drawCanvas" aria-label="公共画布"></canvas>
+            <div id="pixelGridOverlay" class="pixel-grid-overlay hidden" aria-hidden="true"></div>
             <div id="danmakuLayer" class="danmaku-layer" aria-hidden="true"></div>
             <div id="artworkDisplayBadge" class="artwork-display-badge hidden" role="status" aria-live="polite">画作展示中</div>
             <div id="roundTransition" class="round-transition hidden" role="status" aria-live="assertive">
@@ -821,6 +822,37 @@
                   <p id="boardToolStatus" class="board-tool-status" role="status">当前工具：画笔</p>
                 </div>
                 <div id="advancedTools" class="advanced-tools hidden">
+                  <button id="canvasSettingsToggle" type="button" class="mode-button canvas-settings-toggle" aria-expanded="false" aria-controls="canvasSettings">画布</button>
+                  <div id="canvasSettings" class="canvas-settings hidden">
+                    <div class="canvas-mode-row">
+                      <button id="vectorCanvasButton" type="button" class="mode-button is-active">矢量画布</button>
+                      <button id="pixelCanvasButton" type="button" class="mode-button">像素画板</button>
+                    </div>
+                    <div id="pixelSizeControls" class="pixel-size-controls hidden">
+                      <label class="pixel-grid-toggle" for="pixelGridToggle">
+                        <input id="pixelGridToggle" type="checkbox" checked>
+                        <span>显示像素格线</span>
+                      </label>
+                      <div class="pixel-size-fields">
+                        <button id="pixelWidthField" type="button" class="pixel-size-field is-active"><small>宽</small><span id="pixelWidthValue">32</span></button>
+                        <button id="pixelHeightField" type="button" class="pixel-size-field"><small>高</small><span id="pixelHeightValue">32</span></button>
+                      </div>
+                      <div id="pixelNumpad" class="pixel-numpad" aria-label="像素画板数字键盘">
+                        <button type="button" data-digit="1">1</button>
+                        <button type="button" data-digit="2">2</button>
+                        <button type="button" data-digit="3">3</button>
+                        <button type="button" data-digit="4">4</button>
+                        <button type="button" data-digit="5">5</button>
+                        <button type="button" data-digit="6">6</button>
+                        <button type="button" data-digit="7">7</button>
+                        <button type="button" data-digit="8">8</button>
+                        <button type="button" data-digit="9">9</button>
+                        <button type="button" data-action="backspace">⌫</button>
+                        <button type="button" data-digit="0">0</button>
+                        <button type="button" data-action="confirm" class="is-confirm">确认</button>
+                      </div>
+                    </div>
+                  </div>
                   <div class="advanced-grid">
                     <div>
                       <label class="tool-label block mb-2" for="colorPicker">色轮</label>
@@ -874,6 +906,10 @@
               <button id="fillButton" type="button" class="fill-chip" aria-label="油漆桶填充" aria-pressed="false" title="油漆桶（F）">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 14 8-8 7 7-8 8H4Z"/><path d="m9 3 10 10"/><path d="M20 17s2 2.2 2 3.5a2 2 0 0 1-4 0C18 19.2 20 17 20 17Z"/></svg>
                 <span class="board-tool-label">填充</span>
+              </button>
+              <button id="lineButton" type="button" class="line-chip" aria-label="直线" aria-pressed="false" title="直线（L）。矢量画圆头线，像素画格线。画笔或橡皮按住 Shift 也可拉直线">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.8"/><circle cx="19" cy="5" r="1.8"/></svg>
+                <span class="board-tool-label">直线</span>
               </button>
               <div id="simpleSizeControls" class="tool-row tool-rail-sizes">
                 <span class="tool-label" title="点按选择，长按左右拖动精调">笔触</span>
@@ -1042,7 +1078,7 @@
     <img id="artworkFullImage" alt="全屏画作">
   </div>
 
-  <script src="/static/games/draw-guess/js/drawing-board.js?v=20260716q"></script>
+  <script src="/static/games/draw-guess/js/drawing-board.js?v=20260827a"></script>
   <script src="/static/games/draw-guess/js/board-adapter.js?v=20260717a"></script>
   <script>
     window.__DRAW_GUESS_INITIAL_ROOM = {% if initial_room %}"{{ initial_room }}"{% else %}""{% endif %};
@@ -1065,6 +1101,7 @@
     const STORAGE_CONTENT_POLICY = 'potatoblock.contentPolicyAccepted.v1';
     const STORAGE_LANDSCAPE_HINT = 'potatoblock.landscapeHintDismissed.v1';
     const STORAGE_AUTO_HIDE_TOOLS = 'potatoblock.autoHideToolsWhileDrawing.v1';
+    const STORAGE_PIXEL_GRID = 'potatoblock.pixelGridVisible.v1';
     const DEFAULT_SHORTCUTS = {
       undo: 'Mod+KeyZ',
       redo: 'Mod+Shift+KeyZ',
@@ -1073,6 +1110,7 @@
       eraser: 'KeyE',
       eyedropper: 'KeyI',
       fill: 'KeyG',
+      line: 'KeyL',
       swapColors: 'KeyX',
       brushDown: 'BracketLeft',
       brushUp: 'BracketRight',
@@ -1088,6 +1126,7 @@
       eraser: '切换橡皮擦',
       eyedropper: '取色器',
       fill: '切换至油漆桶',
+      line: '直线',
       swapColors: '交换前景色/背景色',
       brushDown: '减小笔触',
       brushUp: '增大笔触',
@@ -1134,6 +1173,7 @@
     let penPressureEnabled = true;
     let penPressureSensitivity = 1;
     let strokeHasMoved = false;
+    let strokeIsStraightLine = false;
     let strokeOrigin = null;
     let lastPenSample = null;
     let activeStrokeIsStylus = false;
@@ -1170,6 +1210,15 @@
     let shortcuts = loadShortcutBindings();
     let capturingShortcutAction = null;
     let mutedPlayerIds = loadMutedPlayerIds();
+    const VECTOR_CANVAS = { mode: 'vector', width: 960, height: 540 };
+    let publicCanvasSpec = Object.assign({}, VECTOR_CANVAS);
+    let privateCanvasSpec = Object.assign({}, VECTOR_CANVAS);
+    let lastAppliedCanvasKey = 'vector:960x540';
+    let canvasSettingsOpen = false;
+    let pixelDraftField = 'width';
+    let pixelDraftWidth = '32';
+    let pixelDraftHeight = '32';
+    let pixelGridVisible = true;
 
     const byId = id => document.getElementById(id);
     const joinScreen = byId('joinScreen');
@@ -1226,6 +1275,7 @@
     const clearButton = byId('clearButton');
     const eyedropperButton = byId('eyedropperButton');
     const fillButton = byId('fillButton');
+    const lineButton = byId('lineButton');
     const eraserButton = byId('eraserButton');
     const brushButton = byId('brushButton');
     const mobileColorToggle = byId('mobileColorToggle');
@@ -1332,6 +1382,7 @@
       else if (action === 'eraser' && canDraw()) setDrawingTool(currentDrawingTool === 'eraser' ? 'brush' : 'eraser');
       else if (action === 'eyedropper' && canDraw()) setDrawingTool(currentDrawingTool === 'eyedropper' ? 'brush' : 'eyedropper');
       else if (action === 'fill' && canDraw()) setDrawingTool('fill');
+      else if (action === 'line' && canDraw()) setDrawingTool(currentDrawingTool === 'line' ? 'brush' : 'line');
       else if (action === 'swapColors' && canDraw()) swapColors();
       else if (action === 'brushDown' && canDraw()) setSize(currentSize - 1);
       else if (action === 'brushUp' && canDraw()) setSize(currentSize + 1);
@@ -1427,10 +1478,194 @@
         || canvas.height !== drawingBoard.logicalHeight
       );
       // CSS scaling does not wipe pixels — avoid full redraw (flicker/lag) on window resize.
-      if (!needsBitmapReset) return;
-      canvas.width = drawingBoard.logicalWidth;
-      canvas.height = drawingBoard.logicalHeight;
-      redrawCanvas();
+      if (needsBitmapReset) {
+        canvas.width = drawingBoard.logicalWidth;
+        canvas.height = drawingBoard.logicalHeight;
+        redrawCanvas();
+      }
+      fitCanvasToStage();
+    }
+
+    /** 像素画板按格子正方形适配 16:9 舞台。 */
+    function fitCanvasToStage() {
+      if (!canvasStageSurface) return;
+      canvasStageSurface.classList.toggle('is-pixel-canvas', Boolean(drawingBoard.pixelMode));
+      drawingBoard.fitToStage(canvasStageSurface);
+      syncPixelGridOverlay();
+    }
+
+    /** 把格线叠在像素画板上并对齐格子，不写入画作、不挡笔触。 */
+    function syncPixelGridOverlay() {
+      const overlay = byId('pixelGridOverlay');
+      if (!overlay || !canvasStageSurface) return;
+      const show = Boolean(drawingBoard.pixelMode) && pixelGridVisible;
+      overlay.classList.toggle('hidden', !show);
+      overlay.setAttribute('aria-hidden', String(!show));
+      if (!show) return;
+      const surfaceRect = canvasStageSurface.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      overlay.style.left = (canvasRect.left - surfaceRect.left) + 'px';
+      overlay.style.top = (canvasRect.top - surfaceRect.top) + 'px';
+      overlay.style.width = canvasRect.width + 'px';
+      overlay.style.height = canvasRect.height + 'px';
+      const cols = Math.max(1, drawingBoard.logicalWidth);
+      const rows = Math.max(1, drawingBoard.logicalHeight);
+      overlay.style.backgroundSize = (canvasRect.width / cols) + 'px ' + (canvasRect.height / rows) + 'px';
+    }
+
+    /** 开关像素格线，并记在本机。 */
+    function setPixelGridVisible(visible) {
+      pixelGridVisible = Boolean(visible);
+      const toggle = byId('pixelGridToggle');
+      if (toggle) toggle.checked = pixelGridVisible;
+      try { localStorage.setItem(STORAGE_PIXEL_GRID, pixelGridVisible ? '1' : '0'); } catch (error) {}
+      syncPixelGridOverlay();
+    }
+
+    function canvasSpecFromPayload(raw) {
+      const source = raw && typeof raw === 'object' ? (raw.canvas || raw) : {};
+      if (source.mode === 'pixel') {
+        return {
+          mode: 'pixel',
+          width: clamp(parseInt(source.width, 10) || 32, 2, 128),
+          height: clamp(parseInt(source.height, 10) || 32, 2, 128)
+        };
+      }
+      return Object.assign({}, VECTOR_CANVAS);
+    }
+
+    function canvasSpecKey(spec) {
+      return spec.mode + ':' + spec.width + 'x' + spec.height;
+    }
+
+    function canvasModeMessageType() {
+      return phase === 'lobby' ? 'lobby_canvas_mode' : 'canvas_mode';
+    }
+
+    /** 切换逻辑分辨率并适配舞台；尺寸变化时由调用方负责清笔触。 */
+    function applyCanvasSpec(spec, options) {
+      const settings = options || {};
+      const next = canvasSpecFromPayload(spec);
+      const key = canvasSpecKey(next);
+      if (isPrivateLobbyCanvas()) privateCanvasSpec = next;
+      else publicCanvasSpec = next;
+      const changed = key !== lastAppliedCanvasKey;
+      if (changed) {
+        drawingBoard.setCanvasMode(next.mode, next.width, next.height);
+        lastAppliedCanvasKey = key;
+        if (settings.resetBrush && next.mode === 'pixel') setSize(1);
+      }
+      fitCanvasToStage();
+      if (!(settings.skipRedraw || settings.skipRedraw)) redrawCanvas();
+      syncCanvasSettingsUi();
+    }
+
+    function ingestRemoteCanvasMessage(message) {
+      const spec = canvasSpecFromPayload(message);
+      const lobbyEvent = message.type === 'lobby_canvas_mode' || message.scope === 'lobby';
+      if (lobbyEvent) {
+        publicCanvasSpec = spec;
+        if (isPrivateLobbyCanvas()) {
+          if (Array.isArray(message.strokes)) {
+            lobbyPublicStrokes = DrawingBoard.cloneStrokes(message.strokes);
+          }
+          return;
+        }
+        applyCanvasSpec(spec);
+        if (Array.isArray(message.strokes)) loadLobbyPublicStrokes(message.strokes, false);
+        return;
+      }
+      if (isPrivateLobbyCanvas()) return;
+      applyCanvasSpec(spec);
+      if (Array.isArray(message.strokes)) loadStrokes(message.strokes, false);
+    }
+
+    function syncCanvasSettingsUi() {
+      const spec = isPrivateLobbyCanvas() ? privateCanvasSpec : publicCanvasSpec;
+      const pixel = spec.mode === 'pixel';
+      const allowed = canSetCanvasBackground();
+      const toggle = byId('canvasSettingsToggle');
+      const vectorButton = byId('vectorCanvasButton');
+      const pixelButton = byId('pixelCanvasButton');
+      if (toggle) toggle.disabled = !allowed;
+      if (vectorButton) {
+        vectorButton.classList.toggle('is-active', !pixel);
+        vectorButton.disabled = !allowed;
+      }
+      if (pixelButton) {
+        pixelButton.classList.toggle('is-active', pixel);
+        pixelButton.disabled = !allowed;
+      }
+      byId('canvasSettings').classList.toggle('hidden', !canvasSettingsOpen);
+      if (toggle) toggle.setAttribute('aria-expanded', String(canvasSettingsOpen));
+      byId('pixelSizeControls').classList.toggle('hidden', !pixel);
+      byId('pixelWidthValue').textContent = pixelDraftWidth || '0';
+      byId('pixelHeightValue').textContent = pixelDraftHeight || '0';
+      byId('pixelWidthField').classList.toggle('is-active', pixelDraftField === 'width');
+      byId('pixelHeightField').classList.toggle('is-active', pixelDraftField === 'height');
+      byId('pixelNumpad').querySelectorAll('button').forEach(button => { button.disabled = !allowed; });
+    }
+
+    function setCanvasSettingsOpen(open) {
+      canvasSettingsOpen = Boolean(open);
+      if (canvasSettingsOpen) {
+        const spec = isPrivateLobbyCanvas() ? privateCanvasSpec : publicCanvasSpec;
+        if (spec.mode === 'pixel') {
+          pixelDraftWidth = String(spec.width);
+          pixelDraftHeight = String(spec.height);
+        }
+      }
+      syncCanvasSettingsUi();
+    }
+
+    function submitCanvasMode(mode) {
+      if (!canSetCanvasBackground()) return;
+      const spec = mode === 'pixel'
+        ? {
+            mode: 'pixel',
+            width: clamp(parseInt(pixelDraftWidth, 10) || 32, 2, 128),
+            height: clamp(parseInt(pixelDraftHeight, 10) || 32, 2, 128)
+          }
+        : Object.assign({}, VECTOR_CANVAS);
+      pixelDraftWidth = String(spec.width);
+      pixelDraftHeight = String(spec.height);
+      if (isPrivateLobbyCanvas()) {
+        const previous = canvasSpecKey(privateCanvasSpec);
+        const toPixel = spec.mode === 'pixel' && privateCanvasSpec.mode !== 'pixel';
+        applyCanvasSpec(spec, { resetBrush: toPixel });
+        if (canvasSpecKey(spec) !== previous) {
+          lobbyPrivateStrokes = filterStrokesKeepingBackground(lobbyPrivateStrokes);
+          privateRedo = [];
+          strokes = lobbyPrivateStrokes;
+          redrawCanvas();
+          updateHistoryButtons();
+        }
+        return;
+      }
+      send({
+        type: canvasModeMessageType(),
+        mode: spec.mode,
+        width: spec.width,
+        height: spec.height,
+        round_id: currentRoundId
+      });
+    }
+
+    function appendPixelDigit(digit) {
+      if (!canSetCanvasBackground()) return;
+      const value = pixelDraftField === 'height' ? pixelDraftHeight : pixelDraftWidth;
+      const next = (value === '0' ? '' : value) + String(digit);
+      const clipped = next.slice(0, 3);
+      if (pixelDraftField === 'height') pixelDraftHeight = clipped;
+      else pixelDraftWidth = clipped;
+      syncCanvasSettingsUi();
+    }
+
+    function backspacePixelDigit() {
+      if (!canSetCanvasBackground()) return;
+      if (pixelDraftField === 'height') pixelDraftHeight = pixelDraftHeight.slice(0, -1);
+      else pixelDraftWidth = pixelDraftWidth.slice(0, -1);
+      syncCanvasSettingsUi();
     }
 
     function floodFillSegment(segment) {
@@ -1564,6 +1799,15 @@
 
     function applyDrawingSyncMessage(message, preserveActiveStroke = false) {
       if (roundTransitionActive || shouldIgnoreDrawingSyncMessage()) return;
+      if (message.canvas || message.mode) {
+        const spec = canvasSpecFromPayload(message.canvas || message);
+        if (message.scope === 'lobby') {
+          publicCanvasSpec = spec;
+          if (!isPrivateLobbyCanvas()) applyCanvasSpec(spec, { skipRedraw: true });
+        } else if (!isPrivateLobbyCanvas()) {
+          applyCanvasSpec(spec, { skipRedraw: true });
+        }
+      }
       if (message.scope === 'game') {
         if (phase !== 'playing' || String(message.round_id || '') !== currentRoundId) return;
         loadStrokes(message.strokes, preserveActiveStroke);
@@ -1686,6 +1930,66 @@
       lastPoint = point;
     }
 
+    /** 按住 Shift 时把直线端点吸附到 45° 的八方向。 */
+    function snapLineEnd(start, end, shiftHeld) {
+      if (!start || !end || !shiftHeld) return end;
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      if (dx === 0 && dy === 0) return end;
+      const angle = Math.atan2(dy, dx);
+      const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+      const length = Math.sqrt(dx * dx + dy * dy);
+      return {
+        x: clamp(start.x + Math.cos(snapped) * length, 0, 1),
+        y: clamp(start.y + Math.sin(snapped) * length, 0, 1)
+      };
+    }
+
+    /** 直线/Shift 拉线用画笔或橡皮提交，避免把 line 工具名写进协议。 */
+    function linePaintTool(event) {
+      if (isPenEraser(event) || activeStrokeTool === 'eraser' || currentDrawingTool === 'eraser') return 'eraser';
+      return 'brush';
+    }
+
+    /** 拖拽时在本地预览直线：矢量圆头线，像素 Bresenham；松手前不发网。 */
+    function previewStraightLine(event) {
+      if (!strokeOrigin) return;
+      event.preventDefault();
+      if (activeStrokeIsStylus) markPenActivity(event, true);
+      const raw = normalizedPoint(event);
+      lastPoint = snapLineEnd(strokeOrigin, raw, event.shiftKey);
+      if (drawingBoard.pixelMode) lastPoint = drawingBoard.snapPoint(lastPoint.x, lastPoint.y);
+      strokeHasMoved = true;
+      redrawCanvas();
+      drawingBoard.drawSegment({
+        x1: strokeOrigin.x,
+        y1: strokeOrigin.y,
+        x2: lastPoint.x,
+        y2: lastPoint.y,
+        color: currentColor,
+        size: strokeSizeForEvent(event),
+        tool: linePaintTool(event)
+      });
+    }
+
+    /** 提交一条线段；像素格对齐，矢量保持圆头描边。 */
+    function commitStraightLine(start, end, event) {
+      if (!start || !end || !activeStrokeId) return;
+      const from = drawingBoard.pixelMode ? drawingBoard.snapPoint(start.x, start.y) : start;
+      const to = drawingBoard.pixelMode ? drawingBoard.snapPoint(end.x, end.y) : end;
+      const segment = {
+        x1: from.x,
+        y1: from.y,
+        x2: to.x,
+        y2: to.y,
+        color: currentColor,
+        size: event ? strokeSizeForEvent(event) : currentSize,
+        tool: linePaintTool(event)
+      };
+      appendSegment(selfId, activeStrokeId, segment);
+      sendCanvasSegment(activeStrokeId, segment);
+    }
+
     function commitStylusTapDot() {
       if (!strokeOrigin || !activeStrokeId) return;
       const sample = lastPenSample;
@@ -1753,8 +2057,10 @@
         lastPenSample = null;
         activeStrokeTool = currentDrawingTool;
       }
+      strokeOrigin = lastPoint;
+      strokeIsStraightLine = currentDrawingTool === 'line';
       try { canvas.setPointerCapture(event.pointerId); } catch (error) {}
-      startDrawingSyncTimer();
+      if (currentDrawingTool !== 'line') startDrawingSyncTimer();
     }
 
     function moveDrawing(event) {
@@ -1764,6 +2070,13 @@
       if (activeStrokeIsStylus) {
         markPenActivity(event, true);
         if (isPenEraser(event)) activeStrokeTool = 'eraser';
+      }
+      if (!strokeHasMoved && event.shiftKey && (currentDrawingTool === 'brush' || currentDrawingTool === 'eraser' || activeStrokeTool === 'brush' || activeStrokeTool === 'eraser')) {
+        strokeIsStraightLine = true;
+      }
+      if (strokeIsStraightLine) {
+        previewStraightLine(event);
+        return;
       }
       // 鼠标/触摸也使用浏览器合并采样，避免快速移动被连成长直线尖刺。
       const coalesced = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
@@ -1777,12 +2090,20 @@
       const wasDrawing = isDrawing;
       const wasStylus = activeStrokeIsStylus;
       const hadMovement = strokeHasMoved;
-      if (wasDrawing && wasStylus && !hadMovement) commitStylusTapDot();
+      if (wasDrawing && strokeIsStraightLine) {
+        const start = strokeOrigin || lastPoint;
+        const rawEnd = event ? normalizedPoint(event) : lastPoint;
+        const end = start && rawEnd ? snapLineEnd(start, rawEnd, Boolean(event && event.shiftKey)) : lastPoint;
+        commitStraightLine(start, end, event);
+      } else if (wasDrawing && wasStylus && !hadMovement) {
+        commitStylusTapDot();
+      }
       isDrawing = false;
       syncFloatingToolsHiddenForStroke();
       lastPoint = null;
       strokeOrigin = null;
       strokeHasMoved = false;
+      strokeIsStraightLine = false;
       lastPenSample = null;
       activeDrawPointerId = null;
       activeStrokeTool = null;
@@ -1935,6 +2256,7 @@
       canvas.setAttribute('aria-label', lobbyCanvasMode === 'private' ? '私人画布' : '公共画布');
       byId('toolbarTitle').textContent = '画板工具';
       resetClearConfirmation();
+      applyCanvasSpec(lobbyCanvasMode === 'private' ? privateCanvasSpec : publicCanvasSpec, { skipRedraw: true });
       redrawCanvas();
       updateHistoryButtons();
     }
@@ -1944,6 +2266,9 @@
       lobbyPublicStrokes = [];
       lobbyPrivateStrokes = [];
       privateRedo = [];
+      publicCanvasSpec = Object.assign({}, VECTOR_CANVAS);
+      privateCanvasSpec = Object.assign({}, VECTOR_CANVAS);
+      applyCanvasSpec(publicCanvasSpec, { skipRedraw: true });
       strokes = lobbyPublicStrokes;
     }
 
@@ -3159,6 +3484,10 @@
       }
       setArtworkDisplay(0);
       renderArtworkGallery(message.artworks);
+      if (message.canvas || message.mode) {
+        publicCanvasSpec = canvasSpecFromPayload(message.canvas || message);
+        if (!isPrivateLobbyCanvas()) applyCanvasSpec(publicCanvasSpec, { skipRedraw: true });
+      }
       const preserveDrawing = isDrawing && phase === 'lobby' && lobbyCanvasMode === 'public' && !selfWatching;
       if (Array.isArray(message.strokes)) {
         loadLobbyPublicStrokes(message.strokes, preserveDrawing);
@@ -3231,6 +3560,7 @@
       setArtworkDisplay(Number(message.artwork_display_remaining) || 0, message.word || '');
       renderArtworkGallery(message.artworks);
       setRoundTransition(transitionRemaining);
+      if (message.canvas || message.mode) applyCanvasSpec(message.canvas || message, { skipRedraw: true });
       if (wasInLobby || roundChanged || transitionRemaining > 0) {
         // 进游戏 / 换画师：强制清屏；无 strokes 字段时按空画布处理
         resetGameCanvasFromServer(Array.isArray(message.strokes) ? message.strokes : []);
@@ -3277,6 +3607,10 @@
     function handleMessage(message) {
       if (message.type === 'lobby_state') return handleLobbyState(message);
       if (message.type === 'state') return handleGameState(message);
+      if (message.type === 'lobby_canvas_mode' || message.type === 'canvas_mode') {
+        ingestRemoteCanvasMessage(message);
+        return;
+      }
       if (message.type === 'room_removed') {
         showRoomRemoved(message.message || '已退出房间');
         return;
@@ -3556,8 +3890,12 @@
       redoButton.disabled = !canDraw() || !hasRedo;
       clearButton.disabled = !canClear();
       canvasBackgroundButton.disabled = !canSetCanvasBackground();
+      const canvasToggle = byId('canvasSettingsToggle');
+      if (canvasToggle) canvasToggle.disabled = !canSetCanvasBackground();
+      syncCanvasSettingsUi();
       eyedropperButton.disabled = !canDraw();
       fillButton.disabled = !canDraw();
+      lineButton.disabled = !canDraw();
       eraserButton.disabled = !canDraw();
       brushButton.disabled = !canDraw();
       mobileColorToggle.disabled = !canDraw();
@@ -3665,16 +4003,24 @@
     }
 
     function setDrawingTool(tool) {
-      currentDrawingTool = ['eraser', 'eyedropper', 'fill'].includes(tool) ? tool : 'brush';
+      currentDrawingTool = ['eraser', 'eyedropper', 'fill', 'line'].includes(tool) ? tool : 'brush';
       brushButton.classList.toggle('is-active', currentDrawingTool === 'brush');
       eraserButton.classList.toggle('is-active', currentDrawingTool === 'eraser');
       eyedropperButton.classList.toggle('is-active', currentDrawingTool === 'eyedropper');
       fillButton.classList.toggle('is-active', currentDrawingTool === 'fill');
+      lineButton.classList.toggle('is-active', currentDrawingTool === 'line');
       brushButton.setAttribute('aria-pressed', String(currentDrawingTool === 'brush'));
       eraserButton.setAttribute('aria-pressed', String(currentDrawingTool === 'eraser'));
       eyedropperButton.setAttribute('aria-pressed', String(currentDrawingTool === 'eyedropper'));
       fillButton.setAttribute('aria-pressed', String(currentDrawingTool === 'fill'));
-      const toolNames = { brush: '画笔', eraser: '橡皮擦', eyedropper: '取色器', fill: '油漆桶' };
+      lineButton.setAttribute('aria-pressed', String(currentDrawingTool === 'line'));
+      const toolNames = {
+        brush: '画笔',
+        eraser: '橡皮擦',
+        eyedropper: '取色器',
+        fill: '油漆桶',
+        line: drawingBoard.pixelMode ? '像素直线' : '矢量直线'
+      };
       byId('boardToolStatus').textContent = '当前工具：' + toolNames[currentDrawingTool];
       canvas.style.cursor = currentDrawingTool === 'eraser' ? 'cell' : currentDrawingTool === 'eyedropper' ? 'copy' : currentDrawingTool === 'fill' ? 'crosshair' : 'crosshair';
     }
@@ -4248,6 +4594,7 @@
     byId('downloadLobbyCanvasButton').addEventListener('click', downloadCurrentLobbyCanvas);
     eyedropperButton.addEventListener('click', () => setDrawingTool(currentDrawingTool === 'eyedropper' ? 'brush' : 'eyedropper'));
     fillButton.addEventListener('click', () => setDrawingTool(currentDrawingTool === 'fill' ? 'brush' : 'fill'));
+    lineButton.addEventListener('click', () => setDrawingTool(currentDrawingTool === 'line' ? 'brush' : 'line'));
     eraserButton.addEventListener('click', () => setDrawingTool(currentDrawingTool === 'eraser' ? 'brush' : 'eraser'));
     brushButton.addEventListener('click', () => setDrawingTool('brush'));
     mobileColorToggle.addEventListener('click', () => {
@@ -4329,6 +4676,31 @@
     backgroundColorButton.addEventListener('click', () => setActiveColorSlot('background'));
     swapColorsButton.addEventListener('click', swapColors);
     byId('toolModeButton').addEventListener('click', () => setToolMode(toolMode === 'simple' ? 'advanced' : 'simple'));
+    byId('canvasSettingsToggle').addEventListener('click', () => setCanvasSettingsOpen(!canvasSettingsOpen));
+    byId('vectorCanvasButton').addEventListener('click', () => submitCanvasMode('vector'));
+    byId('pixelCanvasButton').addEventListener('click', () => {
+      const spec = isPrivateLobbyCanvas() ? privateCanvasSpec : publicCanvasSpec;
+      if (spec.mode !== 'pixel') {
+        pixelDraftWidth = '32';
+        pixelDraftHeight = '32';
+      }
+      publicCanvasSpec = spec.mode === 'pixel' ? spec : publicCanvasSpec;
+      canvasSettingsOpen = true;
+      pixelDraftField = 'width';
+      byId('pixelSizeControls').classList.remove('hidden');
+      byId('vectorCanvasButton').classList.remove('is-active');
+      byId('pixelCanvasButton').classList.add('is-active');
+      syncCanvasSettingsUi();
+    });
+    byId('pixelWidthField').addEventListener('click', () => { pixelDraftField = 'width'; syncCanvasSettingsUi(); });
+    byId('pixelHeightField').addEventListener('click', () => { pixelDraftField = 'height'; syncCanvasSettingsUi(); });
+    byId('pixelNumpad').addEventListener('click', event => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      if (button.dataset.digit != null) appendPixelDigit(button.dataset.digit);
+      else if (button.dataset.action === 'backspace') backspacePixelDigit();
+      else if (button.dataset.action === 'confirm') submitCanvasMode('pixel');
+    });
     byId('brushSizeSlider').addEventListener('input', event => setSize(event.target.value));
     byId('quickBrushSlider').addEventListener('input', event => setSize(event.target.value));
     byId('penPressureToggle').addEventListener('change', event => {
@@ -4573,7 +4945,10 @@
     });
     window.addEventListener('scroll', syncChatRailGeometry, { passive: true });
     if (typeof ResizeObserver !== 'undefined' && canvasStageSurface) {
-      new ResizeObserver(syncChatRailGeometry).observe(canvasStageSurface);
+      new ResizeObserver(() => {
+        syncChatRailGeometry();
+        fitCanvasToStage();
+      }).observe(canvasStageSurface);
     }
     syncChatRailGeometry();
 
@@ -4692,6 +5067,15 @@
     byId('autoHideToolsToggle').checked = autoHideToolsWhileDrawing;
     byId('autoHideToolsToggle').addEventListener('change', event => {
       setAutoHideToolsWhileDrawing(event.target.checked);
+    });
+    try {
+      const savedPixelGrid = localStorage.getItem(STORAGE_PIXEL_GRID);
+      if (savedPixelGrid === '0') pixelGridVisible = false;
+      else if (savedPixelGrid === '1') pixelGridVisible = true;
+    } catch (error) {}
+    byId('pixelGridToggle').checked = pixelGridVisible;
+    byId('pixelGridToggle').addEventListener('change', event => {
+      setPixelGridVisible(event.target.checked);
     });
     setActiveColorSlot(activeColorSlot);
     setSize(5);

@@ -38,10 +38,112 @@
       this.fillTolerance = clamp(Number(settings.fillTolerance) || 20, 0, 64);
       this.maxFillOperations = Number(settings.maxFillOperations) || this.logicalWidth * this.logicalHeight * 6;
       this.onError = typeof settings.onError === 'function' ? settings.onError : function () {};
+      this.pixelMode = false;
       this.strokes = [];
       canvas.width = this.logicalWidth;
       canvas.height = this.logicalHeight;
       canvas.style.backgroundColor = this.backgroundColor;
+      this.applySmoothing();
+    }
+
+    /** 开关最近邻采样，像素画板关闭平滑以免格子发糊。 */
+    applySmoothing() {
+      const smooth = !this.pixelMode;
+      this.context.imageSmoothingEnabled = smooth;
+      this._bufferCtx.imageSmoothingEnabled = smooth;
+    }
+
+    /**
+     * 切换矢量/像素画板并重设逻辑分辨率。
+     * 像素模式下宽高等于格子数，笔触按整格绘制。
+     */
+    setCanvasMode(mode, width, height) {
+      this.pixelMode = mode === 'pixel';
+      if (this.pixelMode) {
+        this.logicalWidth = clamp(Math.round(Number(width) || 32), 2, 128);
+        this.logicalHeight = clamp(Math.round(Number(height) || 32), 2, 128);
+      } else {
+        this.logicalWidth = 960;
+        this.logicalHeight = 540;
+      }
+      this.maxFillOperations = this.logicalWidth * this.logicalHeight * 6;
+      this.canvas.width = this.logicalWidth;
+      this.canvas.height = this.logicalHeight;
+      this.ensureBufferSize();
+      this.applySmoothing();
+    }
+
+    /** 返回当前画布模式，供工具栏和联机同步使用。 */
+    canvasSpec() {
+      return {
+        mode: this.pixelMode ? 'pixel' : 'vector',
+        width: this.logicalWidth,
+        height: this.logicalHeight
+      };
+    }
+
+    /**
+     * 像素画板按格子 1:1 适配舞台；矢量画板清掉内联尺寸，交给 CSS 铺满 16:9。
+     */
+    fitToStage(stage) {
+      if (!this.pixelMode) {
+        this.canvas.style.width = '';
+        this.canvas.style.height = '';
+        return;
+      }
+      if (!stage) return;
+      const stageW = stage.clientWidth;
+      const stageH = stage.clientHeight;
+      if (stageW <= 0 || stageH <= 0) return;
+      const cell = Math.min(stageW / this.logicalWidth, stageH / this.logicalHeight);
+      this.canvas.style.width = (cell * this.logicalWidth) + 'px';
+      this.canvas.style.height = (cell * this.logicalHeight) + 'px';
+    }
+
+    /** 把归一化坐标落到像素中心，保证格子对齐。 */
+    snapPoint(x, y) {
+      if (!this.pixelMode) return { x: clamp(x, 0, 1), y: clamp(y, 0, 1) };
+      const pixelX = clamp(Math.floor(x * this.logicalWidth), 0, this.logicalWidth - 1);
+      const pixelY = clamp(Math.floor(y * this.logicalHeight), 0, this.logicalHeight - 1);
+      return {
+        x: (pixelX + 0.5) / this.logicalWidth,
+        y: (pixelY + 0.5) / this.logicalHeight
+      };
+    }
+
+    /** 在像素画板上沿线段盖一整格方形笔刷。 */
+    stampPixelStroke(context, x1, y1, x2, y2, size, color, eraser) {
+      const width = this.logicalWidth;
+      const height = this.logicalHeight;
+      const brush = clamp(Math.round(Number(size) || 1), 1, 64);
+      const half = Math.floor((brush - 1) / 2);
+      let col1 = clamp(Math.floor(x1 * width), 0, width - 1);
+      let row1 = clamp(Math.floor(y1 * height), 0, height - 1);
+      const col2 = clamp(Math.floor(x2 * width), 0, width - 1);
+      const row2 = clamp(Math.floor(y2 * height), 0, height - 1);
+      const deltaCol = Math.abs(col2 - col1);
+      const deltaRow = Math.abs(row2 - row1);
+      const stepCol = col1 < col2 ? 1 : -1;
+      const stepRow = row1 < row2 ? 1 : -1;
+      let error = deltaCol - deltaRow;
+      context.save();
+      context.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
+      context.fillStyle = color;
+      const stamp = (col, row) => {
+        const left = clamp(col - half, 0, width - 1);
+        const top = clamp(row - half, 0, height - 1);
+        const right = clamp(col - half + brush, 0, width);
+        const bottom = clamp(row - half + brush, 0, height);
+        context.fillRect(left, top, right - left, bottom - top);
+      };
+      while (true) {
+        stamp(col1, row1);
+        if (col1 === col2 && row1 === row2) break;
+        const doubled = error * 2;
+        if (doubled > -deltaRow) { error -= deltaRow; col1 += stepCol; }
+        if (doubled < deltaCol) { error += deltaCol; row1 += stepRow; }
+      }
+      context.restore();
     }
 
     setStrokes(strokes, redraw) {
@@ -55,7 +157,11 @@
     }
     normalizePoint(clientX, clientY) {
       const rect = this.canvas.getBoundingClientRect();
-      return { x: clamp((clientX - rect.left) / rect.width, 0, 1), y: clamp((clientY - rect.top) / rect.height, 0, 1) };
+      const point = {
+        x: clamp((clientX - rect.left) / rect.width, 0, 1),
+        y: clamp((clientY - rect.top) / rect.height, 0, 1)
+      };
+      return this.pixelMode ? this.snapPoint(point.x, point.y) : point;
     }
     sampleColor(x, y) {
       const pixelX = clamp(Math.floor(x * this.logicalWidth), 0, this.logicalWidth - 1);
@@ -70,11 +176,24 @@
       const tool = segment.tool || 'brush';
       if (tool === 'background') { this.setBackground(segment.color); return true; }
       if (tool === 'fill') return this.floodFill(segment).changed;
+      const strokeStyle = isHexColor(segment.color) ? segment.color : '#111827';
+      if (this.pixelMode) {
+        this.stampPixelStroke(
+          this.context,
+          unitNumber(segment.x1),
+          unitNumber(segment.y1),
+          unitNumber(segment.x2),
+          unitNumber(segment.y2),
+          segment.size,
+          strokeStyle,
+          tool === 'eraser'
+        );
+        return true;
+      }
       const x1 = unitNumber(segment.x1) * this.logicalWidth;
       const y1 = unitNumber(segment.y1) * this.logicalHeight;
       const x2 = unitNumber(segment.x2) * this.logicalWidth;
       const y2 = unitNumber(segment.y2) * this.logicalHeight;
-      const strokeStyle = isHexColor(segment.color) ? segment.color : '#111827';
       const lineWidth = clamp(Number(segment.size) || 5, 1, 64) * (this.logicalWidth / 640);
       const composite = tool === 'eraser' ? 'destination-out' : 'source-over';
       const paint = context => {
@@ -104,6 +223,7 @@
     redraw(strokes) {
       if (strokes) this.strokes = cloneStrokes(strokes);
       this.ensureBufferSize();
+      this.applySmoothing();
       const main = this.context;
       let fillColor = this.defaultBackground;
       this.strokes.forEach(stroke => {
@@ -141,7 +261,7 @@
       const seedX = Math.floor(unitNumber(segment.x) * (width - 1)), seedY = Math.floor(unitNumber(segment.y) * (height - 1));
       const image = this.context.getImageData(0, 0, width, height), pixels = image.data;
       const replacement = hexToRgb(segment.color), background = hexToRgb(this.backgroundColor);
-      const target = this.compositedPixel(pixels, (seedY * width + seedX) * 4, background), tolerance = this.fillTolerance;
+      const target = this.compositedPixel(pixels, (seedY * width + seedX) * 4, background), tolerance = this.pixelMode ? 0 : this.fillTolerance;
       if (Math.abs(target[0] - replacement.r) <= tolerance && Math.abs(target[1] - replacement.g) <= tolerance && Math.abs(target[2] - replacement.b) <= tolerance) return { changed: false, reason: 'same-color' };
       let operations = 0, painted = 0;
       const matches = (x, y) => {
@@ -245,21 +365,35 @@
       this.strokes = previous;
       this.backgroundColor = previousBackground;
       this.canvas.style.backgroundColor = previousBackground;
-      const outputWidth = Math.min(Number(maxWidth) || this.logicalWidth, this.logicalWidth), scale = outputWidth / this.logicalWidth;
+      return this._exportBitmap(this._buffer, maxWidth, mimeType, quality);
+    }
+
+    /** 像素画板上采样放大到目标边长，矢量画板不超过逻辑分辨率。 */
+    exportScale(maxWidth) {
+      const requested = Number(maxWidth) || this.logicalWidth;
+      if (this.pixelMode) {
+        const target = Math.max(this.logicalWidth, requested);
+        return Math.max(1, Math.round(target / this.logicalWidth));
+      }
+      const outputWidth = Math.min(requested, this.logicalWidth);
+      return outputWidth / this.logicalWidth;
+    }
+
+    _exportBitmap(source, maxWidth, mimeType, quality) {
+      const scale = this.exportScale(maxWidth);
       const output = document.createElement('canvas');
       output.width = Math.max(1, Math.round(this.logicalWidth * scale));
       output.height = Math.max(1, Math.round(this.logicalHeight * scale));
       const context = output.getContext('2d');
+      context.imageSmoothingEnabled = !this.pixelMode;
       context.fillStyle = this.backgroundColor || this.defaultBackground;
       context.fillRect(0, 0, output.width, output.height);
-      context.drawImage(this._buffer, 0, 0, output.width, output.height);
-      return new Promise(resolve => output.toBlob(resolve, mimeType || 'image/webp', quality));
-    }
-    exportBlob(maxWidth, mimeType, quality) {
-      const outputWidth = Math.min(Number(maxWidth) || this.logicalWidth, this.logicalWidth), scale = outputWidth / this.logicalWidth;
-      const output = document.createElement('canvas'); output.width = Math.max(1, Math.round(this.logicalWidth * scale)); output.height = Math.max(1, Math.round(this.logicalHeight * scale));
-      const context = output.getContext('2d'); context.fillStyle = this.backgroundColor; context.fillRect(0, 0, output.width, output.height); context.drawImage(this.canvas, 0, 0, output.width, output.height);
+      context.drawImage(source, 0, 0, output.width, output.height);
       return new Promise(resolve => output.toBlob(resolve, mimeType || 'image/webp', quality == null ? 0.82 : quality));
+    }
+
+    exportBlob(maxWidth, mimeType, quality) {
+      return this._exportBitmap(this.canvas, maxWidth, mimeType, quality);
     }
     static cloneStrokes(strokes) { return cloneStrokes(strokes); }
     static isBackgroundSegment(segment) { return (segment && (segment.tool || 'brush')) === 'background'; }

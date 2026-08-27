@@ -1,10 +1,25 @@
 .drawing-board { min-width: 0; }
 .drawing-board .canvas-stage { position: relative; display: flex; flex-direction: column; gap: 0; }
-.drawing-board .canvas-stage-surface { position: relative; min-width: 0; }
+.drawing-board .canvas-stage-surface {
+  position: relative; min-width: 0; width: 100%; aspect-ratio: 16 / 9;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; border-radius: 14px;
+  background: #111;
+}
 .drawing-board #drawCanvas {
-  width: 100%; aspect-ratio: 16 / 9; display: block; background: #fff;
+  width: 100%; height: 100%; display: block; background: #fff;
   border-radius: 14px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   box-shadow: 0 10px 28px rgb(0 0 0 / .22);
+}
+.drawing-board .canvas-stage-surface.is-pixel-canvas {
+  background:
+    linear-gradient(45deg, #d4d4d8 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, #d4d4d8 25%, transparent 25%) 0 8px / 16px 16px,
+    #e4e4e7;
+}
+.drawing-board .canvas-stage-surface.is-pixel-canvas #drawCanvas {
+  width: auto; height: auto; max-width: 100%; max-height: 100%;
+  image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .drawing-board .canvas-stage.stylus-ready #drawCanvas { cursor: none; }
 .drawing-board .drawer-toolbar {
@@ -28,29 +43,34 @@
 }
 .drawing-board .brush-chip,
 .drawing-board .eraser-chip,
-.drawing-board .fill-chip {
+.drawing-board .fill-chip,
+.drawing-board .line-chip {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   width: 50px; height: 42px; border: 2px solid var(--line-strong); border-radius: 9px;
   background: var(--field); color: var(--text-soft);
 }
 .drawing-board .brush-chip svg,
 .drawing-board .eraser-chip svg,
-.drawing-board .fill-chip svg { width: 19px; height: 19px; }
+.drawing-board .fill-chip svg,
+.drawing-board .line-chip svg { width: 19px; height: 19px; }
 .drawing-board .board-tool-label { display: block; font-size: 9px; font-weight: 700; line-height: 1; }
 .drawing-board .brush-chip.is-active,
 .drawing-board .eraser-chip.is-active,
-.drawing-board .fill-chip.is-active {
+.drawing-board .fill-chip.is-active,
+.drawing-board .line-chip.is-active {
   border-color: #60a5fa; background: rgb(30 64 175 / .52); color: #fff;
   box-shadow: 0 0 0 2px rgb(96 165 250 / .18);
 }
 html[data-theme='light'] .drawing-board .brush-chip.is-active,
 html[data-theme='light'] .drawing-board .eraser-chip.is-active,
-html[data-theme='light'] .drawing-board .fill-chip.is-active {
+html[data-theme='light'] .drawing-board .fill-chip.is-active,
+html[data-theme='light'] .drawing-board .line-chip.is-active {
   background: #2563eb; border-color: #2563eb;
 }
 .drawing-board .brush-chip:disabled,
 .drawing-board .eraser-chip:disabled,
-.drawing-board .fill-chip:disabled { cursor: not-allowed; opacity: .3; }
+.drawing-board .fill-chip:disabled,
+.drawing-board .line-chip:disabled { cursor: not-allowed; opacity: .3; }
 .drawing-board .board-tool-status { min-height: 18px; margin-top: 7px; color: var(--blue-text); font-size: 11px; }
 .drawing-board .size-list { display: flex; gap: 7px; }
 .drawing-board .size-button {
@@ -138,12 +158,14 @@ html[data-theme='light'] .drawing-board .fill-chip.is-active {
   }
   .drawing-board .brush-chip,
   .drawing-board .eraser-chip,
-  .drawing-board .fill-chip {
+  .drawing-board .fill-chip,
+  .drawing-board .line-chip {
     width: 40px; height: 40px; border-radius: 12px; flex: none;
   }
   .drawing-board .brush-chip svg,
   .drawing-board .eraser-chip svg,
-  .drawing-board .fill-chip svg { width: 18px; height: 18px; }
+  .drawing-board .fill-chip svg,
+  .drawing-board .line-chip svg { width: 18px; height: 18px; }
   .drawing-board .board-tool-label { font-size: 8px; }
   .drawing-board .tool-rail-sizes {
     flex: none; flex-direction: column; width: 100%; margin: 4px 0 0; gap: 4px;
@@ -220,3 +242,57 @@ html[data-theme='light'] .drawing-board .fill-chip.is-active {
     transform: translateX(-8px);
   }
 }
+
+.drawing-board .canvas-settings-toggle { margin: 8px 0; }
+.drawing-board .canvas-settings {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.drawing-board .canvas-settings.hidden,
+.drawing-board .pixel-size-controls.hidden { display: none; }
+.drawing-board .canvas-mode-row {
+  display: flex; gap: 8px; margin-bottom: 8px;
+}
+.drawing-board .canvas-mode-row .mode-button { flex: 1; }
+.drawing-board .pixel-size-fields {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;
+}
+.drawing-board .pixel-size-field {
+  min-height: 40px; padding: 0 10px; border: 1px solid var(--line-strong);
+  border-radius: 10px; background: var(--field); color: var(--text);
+  font-weight: 800; text-align: left;
+}
+.drawing-board .pixel-size-field.is-active {
+  border-color: #60a5fa; background: rgb(37 99 235 / .28); color: #fff;
+}
+.drawing-board .pixel-size-field small {
+  display: block; color: var(--text-muted); font-size: 11px; font-weight: 700;
+}
+.drawing-board .pixel-size-field span { display: block; font-size: 16px; line-height: 1.2; }
+.drawing-board .pixel-numpad {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+.drawing-board .pixel-numpad button {
+  min-height: 40px; border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--chip-bg-strong); color: var(--text); font-size: 16px; font-weight: 800;
+}
+.drawing-board .pixel-numpad button.is-confirm {
+  background: #2563eb; color: #fff; border-color: #2563eb;
+}
+.drawing-board .pixel-grid-toggle {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 8px; color: var(--text-soft);
+  font-size: 13px; font-weight: 700; user-select: none; cursor: pointer;
+}
+.drawing-board .pixel-grid-toggle input { width: 16px; height: 16px; accent-color: #60a5fa; flex: none; }
+.drawing-board .pixel-grid-overlay {
+  position: absolute; z-index: 3; pointer-events: none;
+  border-radius: 14px;
+  background-image:
+    linear-gradient(to right, rgb(15 23 42 / .32) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(15 23 42 / .32) 1px, transparent 1px);
+  background-repeat: repeat;
+  box-shadow: inset 0 0 0 1px rgb(15 23 42 / .32);
+}
+.drawing-board .pixel-grid-overlay.hidden { display: none; }
