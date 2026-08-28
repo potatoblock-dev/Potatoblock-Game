@@ -775,8 +775,39 @@
                 <span id="toolbarTitle" class="text-sm font-semibold text-white/80">画板工具</span>
                 <span id="drawingToolsToggleIcon" class="mobile-collapse-icon ui-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 6-6 6 6"/></svg></span>
               </button>
-              <div class="flex items-center gap-2">
+              <div class="toolbar-head-actions flex items-center gap-2">
+                <button id="canvasSettingsToggle" type="button" class="mode-button canvas-settings-toggle" aria-expanded="false" aria-controls="canvasSettings">画布</button>
                 <button id="shortcutButton" type="button" class="mode-button desktop-only" aria-expanded="false" aria-controls="shortcutPanel">快捷键</button>
+              </div>
+            </div>
+            <div id="canvasSettings" class="canvas-settings hidden">
+              <div class="canvas-mode-row">
+                <button id="vectorCanvasButton" type="button" class="mode-button is-active">矢量画布</button>
+                <button id="pixelCanvasButton" type="button" class="mode-button">像素画板</button>
+              </div>
+              <div id="pixelSizeControls" class="pixel-size-controls hidden">
+                <label class="pixel-grid-toggle" for="pixelGridToggle">
+                  <input id="pixelGridToggle" type="checkbox" checked>
+                  <span>显示像素格线</span>
+                </label>
+                <div class="pixel-size-fields">
+                  <button id="pixelWidthField" type="button" class="pixel-size-field is-active"><small>宽</small><span id="pixelWidthValue">32</span></button>
+                  <button id="pixelHeightField" type="button" class="pixel-size-field"><small>高</small><span id="pixelHeightValue">32</span></button>
+                </div>
+                <div id="pixelNumpad" class="pixel-numpad" aria-label="像素画板数字键盘">
+                  <button type="button" data-digit="1">1</button>
+                  <button type="button" data-digit="2">2</button>
+                  <button type="button" data-digit="3">3</button>
+                  <button type="button" data-digit="4">4</button>
+                  <button type="button" data-digit="5">5</button>
+                  <button type="button" data-digit="6">6</button>
+                  <button type="button" data-digit="7">7</button>
+                  <button type="button" data-digit="8">8</button>
+                  <button type="button" data-digit="9">9</button>
+                  <button type="button" data-action="backspace">⌫</button>
+                  <button type="button" data-digit="0">0</button>
+                  <button type="button" data-action="confirm" class="is-confirm">确认</button>
+                </div>
               </div>
             </div>
             <div id="drawingToolsBody" class="mobile-collapse-body">
@@ -822,37 +853,6 @@
                   <p id="boardToolStatus" class="board-tool-status" role="status">当前工具：画笔</p>
                 </div>
                 <div id="advancedTools" class="advanced-tools hidden">
-                  <button id="canvasSettingsToggle" type="button" class="mode-button canvas-settings-toggle" aria-expanded="false" aria-controls="canvasSettings">画布</button>
-                  <div id="canvasSettings" class="canvas-settings hidden">
-                    <div class="canvas-mode-row">
-                      <button id="vectorCanvasButton" type="button" class="mode-button is-active">矢量画布</button>
-                      <button id="pixelCanvasButton" type="button" class="mode-button">像素画板</button>
-                    </div>
-                    <div id="pixelSizeControls" class="pixel-size-controls hidden">
-                      <label class="pixel-grid-toggle" for="pixelGridToggle">
-                        <input id="pixelGridToggle" type="checkbox" checked>
-                        <span>显示像素格线</span>
-                      </label>
-                      <div class="pixel-size-fields">
-                        <button id="pixelWidthField" type="button" class="pixel-size-field is-active"><small>宽</small><span id="pixelWidthValue">32</span></button>
-                        <button id="pixelHeightField" type="button" class="pixel-size-field"><small>高</small><span id="pixelHeightValue">32</span></button>
-                      </div>
-                      <div id="pixelNumpad" class="pixel-numpad" aria-label="像素画板数字键盘">
-                        <button type="button" data-digit="1">1</button>
-                        <button type="button" data-digit="2">2</button>
-                        <button type="button" data-digit="3">3</button>
-                        <button type="button" data-digit="4">4</button>
-                        <button type="button" data-digit="5">5</button>
-                        <button type="button" data-digit="6">6</button>
-                        <button type="button" data-digit="7">7</button>
-                        <button type="button" data-digit="8">8</button>
-                        <button type="button" data-digit="9">9</button>
-                        <button type="button" data-action="backspace">⌫</button>
-                        <button type="button" data-digit="0">0</button>
-                        <button type="button" data-action="confirm" class="is-confirm">确认</button>
-                      </div>
-                    </div>
-                  </div>
                   <div class="advanced-grid">
                     <div>
                       <label class="tool-label block mb-2" for="colorPicker">色轮</label>
@@ -1649,6 +1649,20 @@
         height: spec.height,
         round_id: currentRoundId
       });
+    }
+
+    function activatePixelCanvasMode() {
+      const spec = isPrivateLobbyCanvas() ? privateCanvasSpec : publicCanvasSpec;
+      if (spec.mode === 'pixel') {
+        pixelDraftWidth = String(spec.width);
+        pixelDraftHeight = String(spec.height);
+      } else {
+        pixelDraftWidth = '32';
+        pixelDraftHeight = '32';
+      }
+      canvasSettingsOpen = true;
+      pixelDraftField = 'width';
+      submitCanvasMode('pixel');
     }
 
     function appendPixelDigit(digit) {
@@ -4678,20 +4692,7 @@
     byId('toolModeButton').addEventListener('click', () => setToolMode(toolMode === 'simple' ? 'advanced' : 'simple'));
     byId('canvasSettingsToggle').addEventListener('click', () => setCanvasSettingsOpen(!canvasSettingsOpen));
     byId('vectorCanvasButton').addEventListener('click', () => submitCanvasMode('vector'));
-    byId('pixelCanvasButton').addEventListener('click', () => {
-      const spec = isPrivateLobbyCanvas() ? privateCanvasSpec : publicCanvasSpec;
-      if (spec.mode !== 'pixel') {
-        pixelDraftWidth = '32';
-        pixelDraftHeight = '32';
-      }
-      publicCanvasSpec = spec.mode === 'pixel' ? spec : publicCanvasSpec;
-      canvasSettingsOpen = true;
-      pixelDraftField = 'width';
-      byId('pixelSizeControls').classList.remove('hidden');
-      byId('vectorCanvasButton').classList.remove('is-active');
-      byId('pixelCanvasButton').classList.add('is-active');
-      syncCanvasSettingsUi();
-    });
+    byId('pixelCanvasButton').addEventListener('click', () => activatePixelCanvasMode());
     byId('pixelWidthField').addEventListener('click', () => { pixelDraftField = 'width'; syncCanvasSettingsUi(); });
     byId('pixelHeightField').addEventListener('click', () => { pixelDraftField = 'height'; syncCanvasSettingsUi(); });
     byId('pixelNumpad').addEventListener('click', event => {
