@@ -1111,6 +1111,12 @@
     const STORAGE_LANDSCAPE_HINT = 'potatoblock.landscapeHintDismissed.v1';
     const STORAGE_AUTO_HIDE_TOOLS = 'potatoblock.autoHideToolsWhileDrawing.v1';
     const STORAGE_PIXEL_GRID = 'potatoblock.pixelGridVisible.v1';
+    const STORAGE_VECTOR_BRUSH = 'potatoblock.vectorBrushSize.v1';
+    const STORAGE_PIXEL_BRUSH = 'potatoblock.pixelBrushSize.v1';
+    const DEFAULT_VECTOR_BRUSH = 5;
+    const DEFAULT_PIXEL_BRUSH = 1;
+    const BRUSH_SIZE_MIN = 1;
+    const BRUSH_SIZE_MAX = 32;
     const DEFAULT_SHORTCUTS = {
       undo: 'Mod+KeyZ',
       redo: 'Mod+Shift+KeyZ',
@@ -1174,6 +1180,8 @@
     let currentColor = foregroundColor;
     let canvasBackgroundColor = '#ffffff';
     let currentSize = 5;
+    let vectorBrushSize = DEFAULT_VECTOR_BRUSH;
+    let pixelBrushSize = DEFAULT_PIXEL_BRUSH;
     let currentDrawingTool = 'brush';
     let activeDrawPointerId = null;
     let penGuardUntil = 0;
@@ -1570,9 +1578,11 @@
       else publicCanvasSpec = next;
       const changed = key !== lastAppliedCanvasKey;
       if (changed) {
+        const previousMode = drawingBoard.pixelMode ? 'pixel' : 'vector';
+        persistBrushSizeForMode(previousMode === 'pixel', currentSize);
         drawingBoard.setCanvasMode(next.mode, next.width, next.height);
         lastAppliedCanvasKey = key;
-        if (settings.resetBrush && next.mode === 'pixel') setSize(1);
+        if (next.mode !== previousMode) applyBrushSizeForCanvasMode(next.mode === 'pixel');
       }
       fitCanvasToStage();
       if (!(settings.skipRedraw || settings.skipRedraw)) redrawCanvas();
@@ -1661,8 +1671,7 @@
       pixelDraftHeight = String(spec.height);
       if (isPrivateLobbyCanvas()) {
         const previous = canvasSpecKey(privateCanvasSpec);
-        const toPixel = spec.mode === 'pixel' && privateCanvasSpec.mode !== 'pixel';
-        applyCanvasSpec(spec, { resetBrush: toPixel });
+        applyCanvasSpec(spec);
         if (canvasSpecKey(spec) !== previous) {
           lobbyPrivateStrokes = filterStrokesKeepingBackground(lobbyPrivateStrokes);
           privateRedo = [];
@@ -4213,8 +4222,34 @@
       saveColorSlots();
     }
 
-    const BRUSH_SIZE_MIN = 1;
-    const BRUSH_SIZE_MAX = 32;
+    /** 把指定画布模式的笔刷大小写入内存与本机。 */
+    function persistBrushSizeForMode(pixelMode, size) {
+      const value = clamp(
+        parseInt(size, 10) || (pixelMode ? DEFAULT_PIXEL_BRUSH : DEFAULT_VECTOR_BRUSH),
+        BRUSH_SIZE_MIN,
+        BRUSH_SIZE_MAX
+      );
+      if (pixelMode) pixelBrushSize = value;
+      else vectorBrushSize = value;
+      try {
+        localStorage.setItem(pixelMode ? STORAGE_PIXEL_BRUSH : STORAGE_VECTOR_BRUSH, String(value));
+      } catch (error) {}
+    }
+
+    /** 读取本机记忆的矢量/像素笔刷大小。 */
+    function loadBrushSizeMemory() {
+      try {
+        const savedVector = parseInt(localStorage.getItem(STORAGE_VECTOR_BRUSH), 10);
+        if (!Number.isNaN(savedVector)) vectorBrushSize = clamp(savedVector, BRUSH_SIZE_MIN, BRUSH_SIZE_MAX);
+        const savedPixel = parseInt(localStorage.getItem(STORAGE_PIXEL_BRUSH), 10);
+        if (!Number.isNaN(savedPixel)) pixelBrushSize = clamp(savedPixel, BRUSH_SIZE_MIN, BRUSH_SIZE_MAX);
+      } catch (error) {}
+    }
+
+    /** 切换画布模式后恢复对应笔刷大小。 */
+    function applyBrushSizeForCanvasMode(pixelMode) {
+      setSize(pixelMode ? pixelBrushSize : vectorBrushSize, { persist: false });
+    }
 
     function syncBrushSizeInputs(size) {
       const focused = document.activeElement;
@@ -4224,13 +4259,15 @@
       });
     }
 
-    function setSize(value) {
+    function setSize(value, options) {
+      const settings = options || {};
       currentSize = clamp(parseInt(value, 10), BRUSH_SIZE_MIN, BRUSH_SIZE_MAX);
       document.querySelectorAll('.size-button').forEach(button => button.classList.toggle('is-active', Number(button.dataset.size) === currentSize));
       byId('brushSizeSlider').value = currentSize;
       byId('quickBrushSlider').value = currentSize;
       syncBrushSizeInputs(currentSize);
       byId('brushPreviewDot').style.setProperty('--size', currentSize + 'px');
+      if (settings.persist !== false) persistBrushSizeForMode(Boolean(drawingBoard.pixelMode), currentSize);
     }
 
     function commitBrushSizeField(field) {
@@ -5145,8 +5182,9 @@
     byId('pixelGridToggle').addEventListener('change', event => {
       setPixelGridVisible(event.target.checked);
     });
+    loadBrushSizeMemory();
     setActiveColorSlot(activeColorSlot);
-    setSize(5);
+    setSize(vectorBrushSize, { persist: false });
     setToolMode('simple');
     syncMobileSections();
     renderShortcutSettings();
