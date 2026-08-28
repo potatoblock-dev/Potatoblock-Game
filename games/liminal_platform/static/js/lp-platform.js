@@ -87,10 +87,14 @@
   let dungeon = null;
   /** 月台多楼层：上一帧所站地板 Y，供 floorAt 近邻选择。 */
   let lastPlatformFloorY = null;
+  /** 最近一次楼层 Y 变化（叠井楼梯时偏向继续上/下）。 */
+  let lastFloorDelta = 0;
   /** 本程离站时刻（performance.now）；未离站为 null。 */
   let departedAtMs = null;
   /** 本程雷达揭示下一站所需行驶秒数（离站时按种子锁定）。 */
   let radarRevealSec = 90;
+  /** 雷达铁轨走向缓存（seed+站序）；量程只裁窗口。 */
+  let trackAlignCache = { key: '', pts: null };
 
   const editRoot = document.getElementById('lpPlatformEditRoot');
   const editList = document.getElementById('lpPlatformEditList');
@@ -229,7 +233,7 @@
   function getDepartBlockReason() {
     if (!atPlatform) return null;
     if (!anyPlayerOnPlatform()) return null;
-    if (scene === 'platform') return '还有玩家在月台上（你仍在月台 — 请先回车）';
+    if (scene === 'platform') return '还有玩家在月台上（你仍在月台，请先回车）';
     return '还有玩家在月台上';
   }
 
@@ -422,16 +426,31 @@
       remember = false;
     }
     if (platformKind === 'small' && dungeon) {
-      const y = window.LpDungeon?.floorAt?.(dungeon, x, preferY);
+      const biasY =
+        Number.isFinite(preferY) && lastFloorDelta
+          ? preferY + lastFloorDelta
+          : undefined;
+      const y = window.LpDungeon?.floorAt?.(dungeon, x, preferY, biasY);
       if (y != null) {
-        if (remember) lastPlatformFloorY = y;
+        if (remember) {
+          if (Number.isFinite(lastPlatformFloorY) && y !== lastPlatformFloorY) {
+            lastFloorDelta = y - lastPlatformFloorY;
+          }
+          lastPlatformFloorY = y;
+        }
         return y;
       }
       const fallback = dungeon.spawnFloorY || dungeon.bounds.floorY;
-      if (remember) lastPlatformFloorY = fallback;
+      if (remember) {
+        lastFloorDelta = 0;
+        lastPlatformFloorY = fallback;
+      }
       return fallback;
     }
-    if (remember) lastPlatformFloorY = PLAT_FLOOR_Y;
+    if (remember) {
+      lastFloorDelta = 0;
+      lastPlatformFloorY = PLAT_FLOOR_Y;
+    }
     return PLAT_FLOOR_Y;
   }
 
@@ -523,6 +542,7 @@
     platformKind = resolvePlatformKind(lockedStationIndex);
     dungeon = null;
     lastPlatformFloorY = null;
+    lastFloorDelta = 0;
     if (platformKind === 'small' && window.LpDungeon?.generate) {
       dungeon = window.LpDungeon.generate(getWorldSeed(), lockedStationIndex);
       ensurePlatformLoot(lockedStationIndex);
@@ -543,6 +563,7 @@
         ? dungeon.spawnFloorY
         : PLAT_FLOOR_Y;
     lastPlatformFloorY = spawnY;
+    lastFloorDelta = 0;
     if (trainLocal) {
       trainLocal.x = platformLocalX;
       trainLocal.vx = 0;
@@ -564,6 +585,7 @@
     scene = 'train';
     dungeon = null;
     lastPlatformFloorY = null;
+    lastFloorDelta = 0;
     platformKind = null;
     window.LpMobs?.clearDungeonMobs?.();
     window.LpDungeonFow?.reset?.();
@@ -618,7 +640,7 @@
   }
 
   /**
-   * 应用编组顺序（可变车：empty / storage 可隐；核心车固定保留）。
+   * 应用编组顺序（可变车：empty / storage / tasha 可隐；核心车固定保留）。
    * @param {string[]} orderIds
    */
   function applyComposition(orderIds) {
@@ -626,7 +648,7 @@
     if (!S?.CARRIAGES) return false;
     const byId = Object.fromEntries(S.CARRIAGES.map((c) => [c.id, c]));
     const core = ['guard', 'power', 'huigui', 'shuji'];
-    const optional = ['storage', 'empty'];
+    const optional = ['storage', 'empty', 'tasha'];
     const next = [];
     const seen = new Set();
     for (const id of orderIds) {
@@ -713,7 +735,7 @@
       body.appendChild(name);
       item.appendChild(body);
 
-      if (car.id === 'empty' || car.id === 'storage') {
+      if (car.id === 'empty' || car.id === 'storage' || car.id === 'tasha') {
         const rem = document.createElement('button');
         rem.type = 'button';
         rem.className = 'lp-platform-edit-remove';
@@ -736,7 +758,7 @@
     if (editAdd) {
       editAdd.innerHTML = '';
       let any = false;
-      for (const id of ['storage', 'empty']) {
+      for (const id of ['tasha', 'storage', 'empty']) {
         if (cars.some((c) => c.id === id)) continue;
         const tpl = carTemplate(id);
         if (!tpl) continue;
@@ -860,6 +882,17 @@
     const S = Spec();
     const existing = S?.carriageById?.(id);
     if (existing) return existing;
+    if (id === 'tasha') {
+      return {
+        id: 'tasha',
+        label: '塔莎火箭弹车厢',
+        image:
+          '/static/games/liminal-platform/img/cars/tasha-rocket/tasha-rocket-car-base.png?v=1',
+        icon: '/static/games/liminal-platform/img/cars/tasha-rocket/tasha-rocket-icon.png?v=1',
+        worldX: 0,
+        map: { shortLabel: '塔莎', kind: 'artillery', tone: '#9a3412' },
+      };
+    }
     if (id === 'storage') {
       return {
         id: 'storage',
@@ -904,7 +937,7 @@
   function removeOptional(carId) {
     const S = Spec();
     if (!S?.CARRIAGES) return;
-    if (carId !== 'empty' && carId !== 'storage') return;
+    if (carId !== 'empty' && carId !== 'storage' && carId !== 'tasha') return;
     applyComposition(S.CARRIAGES.filter((c) => c.id !== carId).map((c) => c.id));
     renderEditList();
   }
@@ -998,7 +1031,7 @@
       }
     } else if (stopped && dist <= DOCK_DIST) {
       enterDockedState();
-      window.LiminalInteract?.showToast?.('列车已停靠月台 — 连接处按 F 进入');
+      window.LiminalInteract?.showToast?.('列车已停靠月台，连接处按 F 进入');
     }
 
     syncSensorStub();
@@ -1074,9 +1107,30 @@
   }
 
   /**
-   * 将路线剩余距离映射为雷达示波器上的世界距离。
-   * 近距用真实距离；更远压到「当前量程」外环（非固定 4400），
-   * 短量程仍能看见远站，满档时拉开间距、避免全挤在内环。
+   * 雷达站心：与 PPI 原点同一点（绘轨走道中心，否则编组中点）。
+   * @returns {{ x: number, y: number }|null}
+   */
+  function getRadarStationOrigin() {
+    const S = Spec();
+    if (!S?.CARRIAGES?.length) return null;
+    const y = S.TRACK_Y ?? S.FLOOR_Y;
+    const scope = S.carriageById?.('huigui');
+    if (scope) {
+      return {
+        x: scope.worldX + (S.WALK_LEFT + S.WALK_RIGHT) / 2,
+        y,
+      };
+    }
+    const first = S.CARRIAGES[0];
+    const last = S.CARRIAGES[S.CARRIAGES.length - 1];
+    return {
+      x: (first.worldX + last.worldX + S.MODULE_W) / 2,
+      y,
+    };
+  }
+
+  /**
+   * 路线距离 → 示波器径向距离：量程内用真值（缩放会动）；超出则贴外环表示超程。
    * @param {number} routeDist
    * @returns {number}
    */
@@ -1086,15 +1140,8 @@
     const rangeRaw = Number(window.LpRadarScope?.getRange?.());
     const range =
       Number.isFinite(rangeRaw) && rangeRaw > 0 ? rangeRaw : 4800;
-    /** 真实距离段：默认对齐 3600，短量程时压到量程的 75%。 */
-    const TRUE_UNTIL = Math.min(3600, range * 0.75);
-    if (d <= TRUE_UNTIL) return d;
-    /** 远站外环：贴当前量程 ~92%，随拉杆拉开。 */
-    const FAR_EDGE = range * 0.92;
-    if (FAR_EDGE <= TRUE_UNTIL) return Math.min(d, FAR_EDGE);
-    const farSpan = Math.max(1, STATION_SPACING - TRUE_UNTIL);
-    const t = Math.min(1, (d - TRUE_UNTIL) / farSpan);
-    return TRUE_UNTIL + (FAR_EDGE - TRUE_UNTIL) * t;
+    if (d <= range) return d;
+    return range * 0.96;
   }
 
   /**
@@ -1136,50 +1183,329 @@
   function getRadarPlatformBlip() {
     if (!isNextPlatformRadarVisible()) return null;
     const S = Spec();
-    if (!S?.CARRIAGES?.length) return null;
-    const mid =
-      (S.CARRIAGES[0].worldX +
-        S.CARRIAGES[S.CARRIAGES.length - 1].worldX +
-        S.MODULE_W) /
-      2;
+    const origin = getRadarStationOrigin();
+    if (!S?.CARRIAGES?.length || !origin) return null;
     const routeDist = atPlatform ? 0 : distanceToStation();
     const dist = radarBlipRouteDist(routeDist);
     const forward = S.TRAIN_FORWARD_X >= 0 ? 1 : -1;
     return {
-      x: mid + forward * dist,
-      y: S.FLOOR_Y,
+      x: origin.x + forward * dist,
+      y: origin.y,
       label: '月台',
     };
   }
 
+  /** 雷达铁轨生成覆盖（世界单位）：按最大量程一次生成，缩放只裁剪。 */
+  const TRACK_ALIGN_COVER = 12600;
+  /** 轨向相对前进轴最大偏角（约 28°），避免绕成圈。 */
+  const TRACK_MAX_HEADING = 0.48;
+  /** 会让线 / 侧线轨距（世界单位）。 */
+  const TRACK_LANE_SEP = 240;
+
   /**
-   * 雷达铁轨折线（世界点，含拐弯）；跨度随当前量程伸缩，满档仍铺满 PPI 作地图脊线。
+   * 确定性 0–1 随机（worldSeed ⊕ stationIndex ⊕ salt）。
+   * @param {number} salt
+   */
+  function trackRand(salt) {
+    const seed =
+      (Number(getWorldSeed()) >>> 0) ^
+      ((Number(getStationIndex()) * 0x9e3779b9) >>> 0);
+    const v = window.LpDungeon?.hash2?.(seed, salt | 0);
+    if (Number.isFinite(v)) return (v >>> 0) / 4294967296;
+    let h = (seed ^ (salt | 0)) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+    return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+  }
+
+  /**
+   * 从原点沿 ±u 铺铁路走向：长直线 + 偶发缓弯（非正弦波形）。
+   * heading=0 表示沿前进轴；过原点保持顺直，列车落在本线上。
+   * @param {1|-1} sign +u 前方 / −u 后方
+   * @param {number} keyOff 哈希盐
+   * @returns {Array<{ u: number, lat: number }>}
+   */
+  function appendTrackSide(sign, keyOff) {
+    let u = 0;
+    let lat = 0;
+    let heading = 0;
+    /** @type {Array<{ u: number, lat: number }>} */
+    const out = [];
+    let k = 0;
+    while ((sign > 0 ? u : -u) < TRACK_ALIGN_COVER && k < 70) {
+      k += 1;
+      const roll = trackRand(keyOff + k * 31);
+      if (roll < 0.58) {
+        const len = 2000 + trackRand(keyOff + 800 + k) * 3600;
+        const n = Math.max(2, Math.round(len / 200));
+        const ds = len / n;
+        for (let i = 0; i < n; i += 1) {
+          u += sign * Math.cos(heading) * ds;
+          lat += sign * Math.sin(heading) * ds;
+          out.push({ u, lat });
+        }
+        continue;
+      }
+      const mag = ((14 + trackRand(keyOff + 900 + k) * 28) * Math.PI) / 180;
+      const dir = trackRand(keyOff + 950 + k) > 0.5 ? 1 : -1;
+      let turn = dir * mag;
+      const nextH = heading + turn;
+      if (Math.abs(nextH) > TRACK_MAX_HEADING) {
+        const room = TRACK_MAX_HEADING * 0.92 - Math.abs(heading);
+        if (room < 0.06) {
+          const len = 1800 + trackRand(keyOff + 880 + k) * 2000;
+          const n = Math.max(2, Math.round(len / 200));
+          const ds = len / n;
+          for (let i = 0; i < n; i += 1) {
+            u += sign * Math.cos(heading) * ds;
+            lat += sign * Math.sin(heading) * ds;
+            out.push({ u, lat });
+          }
+          continue;
+        }
+        turn = Math.sign(turn || dir) * room;
+      }
+      const radius = 2400 + trackRand(keyOff + 970 + k) * 4000;
+      const arcLen = Math.abs(turn) * radius;
+      const n = Math.max(5, Math.round(arcLen / 180));
+      const ds = arcLen / n;
+      const dH = turn / n;
+      for (let i = 0; i < n; i += 1) {
+        heading += dH;
+        u += sign * Math.cos(heading) * ds;
+        lat += sign * Math.sin(heading) * ds;
+        out.push({ u, lat });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 本线 (u, lat) 折线：缓存至 seed/站序变化；过原点 lat=0。
+   * @returns {Array<{ u: number, lat: number }>}
+   */
+  function getTrackAlignmentUL() {
+    const key = `${Number(getWorldSeed()) >>> 0}|${getStationIndex() | 0}`;
+    if (trackAlignCache.key === key && trackAlignCache.pts?.length) {
+      return trackAlignCache.pts;
+    }
+    const ahead = appendTrackSide(1, 0x1000);
+    const behind = appendTrackSide(-1, 0x3000);
+    behind.reverse();
+    /** @type {Array<{ u: number, lat: number }>} */
+    const pts = [...behind, { u: 0, lat: 0 }, ...ahead];
+    trackAlignCache = { key, pts };
+    return pts;
+  }
+
+  /**
+   * (u, lat) → 世界坐标（u 沿列车前进，lat 为轨面侧向）。
+   * @param {Array<{ u: number, lat: number }>} ul
+   * @param {number} midX
+   * @param {number} midY
+   * @param {number} forward
+   */
+  function trackUlToWorld(ul, midX, midY, forward) {
+    return ul.map((p) => ({
+      x: midX + forward * p.u,
+      y: midY + p.lat,
+    }));
+  }
+
+  /**
+   * 在 u 处对相邻点线性插值。
+   * @param {{ u: number, lat: number }} a
+   * @param {{ u: number, lat: number }} b
+   * @param {number} u
+   */
+  function lerpTrackUL(a, b, u) {
+    const t = (u - a.u) / (b.u - a.u || 1);
+    return { u, lat: a.lat + (b.lat - a.lat) * t };
+  }
+
+  /**
+   * 裁到当前量程可见半跨；跨边界时补端点，避免近距只剩 1 点而不画轨。
+   * @param {Array<{ u: number, lat: number }>} ul
+   * @param {number} halfSpan
+   */
+  function clipTrackUL(ul, halfSpan) {
+    if (!ul?.length) return [];
+    const lo = -halfSpan;
+    const hi = halfSpan;
+    /** @type {Array<{ u: number, lat: number }>} */
+    const out = [];
+    for (let i = 0; i < ul.length; i += 1) {
+      const p = ul[i];
+      const prev = i > 0 ? ul[i - 1] : null;
+      if (prev) {
+        if ((prev.u < lo && p.u >= lo) || (prev.u >= lo && p.u < lo)) {
+          out.push(lerpTrackUL(prev, p, lo));
+        }
+        if ((prev.u <= hi && p.u > hi) || (prev.u > hi && p.u <= hi)) {
+          out.push(lerpTrackUL(prev, p, hi));
+        }
+      }
+      if (p.u >= lo && p.u <= hi) out.push(p);
+    }
+    return out;
+  }
+
+  /**
+   * 会让线：在本线一段区间内经道岔平滑岔出再汇合。
+   * @param {Array<{ u: number, lat: number }>} main
+   * @param {number} sideSign +1 / −1
+   * @param {number} startU
+   * @param {number} endU
+   * @param {number} sep
+   */
+  function buildPassingLoop(main, sideSign, startU, endU, sep) {
+    if (endU - startU < 600) return [];
+    const turnout = Math.min(520, (endU - startU) * 0.28);
+    /** @type {Array<{ u: number, lat: number }>} */
+    const out = [];
+    for (const p of main) {
+      if (p.u < startU || p.u > endU) continue;
+      let t = 1;
+      if (p.u < startU + turnout) t = (p.u - startU) / turnout;
+      else if (p.u > endU - turnout) t = (endU - p.u) / turnout;
+      t = Math.max(0, Math.min(1, t));
+      t *= t * (3 - 2 * t);
+      out.push({ u: p.u, lat: p.lat + sideSign * sep * t });
+    }
+    return out;
+  }
+
+  /**
+   * 本列主轨世界折线；量程只决定可见窗口，走向不随缩放变成波形。
    * @returns {Array<{ x: number, y: number }>}
    */
-  function getRadarTrackPolyline() {
+  function buildOwnTrackSpine() {
+    const origin = getRadarStationOrigin();
     const S = Spec();
-    if (!S?.CARRIAGES?.length) return [];
-    const midY = S.FLOOR_Y;
-    const midX =
-      (S.CARRIAGES[0].worldX +
-        S.CARRIAGES[S.CARRIAGES.length - 1].worldX +
-        S.MODULE_W) /
-      2;
+    if (!origin || !S?.CARRIAGES?.length) return [];
     const forward = S.TRAIN_FORWARD_X >= 0 ? 1 : -1;
     const rangeRaw = Number(window.LpRadarScope?.getRange?.());
     const range =
       Number.isFinite(rangeRaw) && rangeRaw > 0 ? rangeRaw : 4800;
-    const halfSpan = range * 0.95;
-    const artLat = S.scaleArt?.(180) || 180;
-    const lateral = Math.min(range * 0.1, Math.max(120, artLat * (range / 4800)));
-    /* 前进轴 ≈ 世界 +X；俯视雷达里会再转到航向。折线含一段侧向弯。 */
-    return [
-      { x: midX - forward * halfSpan, y: midY },
-      { x: midX - forward * halfSpan * 0.28, y: midY },
-      { x: midX + forward * halfSpan * 0.08, y: midY + lateral },
-      { x: midX + forward * halfSpan * 0.55, y: midY + lateral },
-      { x: midX + forward * halfSpan, y: midY },
+    const halfSpan = range * 0.98;
+    const ul = clipTrackUL(getTrackAlignmentUL(), halfSpan);
+    if (ul.length < 2) return [];
+    return trackUlToWorld(ul, origin.x, origin.y, forward);
+  }
+
+  /**
+   * 将折线沿路径法向平移（侧线保持大致平行，而不是整条 +Y）。
+   * @param {Array<{ x: number, y: number }>} spine
+   * @param {number} offset
+   * @returns {Array<{ x: number, y: number }>}
+   */
+  function offsetTrackSpine(spine, offset) {
+    if (spine.length < 2) return spine.map((p) => ({ x: p.x, y: p.y + offset }));
+    /** @type {Array<{ x: number, y: number }>} */
+    const out = [];
+    for (let i = 0; i < spine.length; i += 1) {
+      let dx;
+      let dy;
+      if (i === 0) {
+        dx = spine[1].x - spine[0].x;
+        dy = spine[1].y - spine[0].y;
+      } else if (i === spine.length - 1) {
+        dx = spine[i].x - spine[i - 1].x;
+        dy = spine[i].y - spine[i - 1].y;
+      } else {
+        dx = spine[i + 1].x - spine[i - 1].x;
+        dy = spine[i + 1].y - spine[i - 1].y;
+      }
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      out.push({
+        x: spine[i].x + nx * offset,
+        y: spine[i].y + ny * offset,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 雷达「铁轨线路」网络：本线 + 若干会让/侧线（道岔岔出，非整条平行波形）。
+   * @returns {Array<{ id: string, kind: 'own'|'siding', lane: number, label: string, points: Array<{ x: number, y: number }> }>}
+   */
+  function getRadarTrackRoutes() {
+    const S = Spec();
+    const origin = getRadarStationOrigin();
+    if (!S?.CARRIAGES?.length || !origin) return [];
+    const midX = origin.x;
+    const midY = origin.y;
+    const forward = S.TRAIN_FORWARD_X >= 0 ? 1 : -1;
+    const rangeRaw = Number(window.LpRadarScope?.getRange?.());
+    const range =
+      Number.isFinite(rangeRaw) && rangeRaw > 0 ? rangeRaw : 4800;
+    const halfSpan = range * 0.98;
+    const mainUL = clipTrackUL(getTrackAlignmentUL(), halfSpan * 1.05);
+    if (mainUL.length < 2) return [];
+    /** @type {Array<{ id: string, kind: 'own'|'siding', lane: number, label: string, points: Array<{ x: number, y: number }> }>} */
+    const routes = [
+      {
+        id: 'track-own',
+        kind: 'own',
+        lane: 0,
+        label: '本线',
+        points: trackUlToWorld(clipTrackUL(mainUL, halfSpan), midX, midY, forward),
+      },
     ];
+    const loops = [
+      {
+        id: 'track-siding-n',
+        lane: 1,
+        label: '侧线 N',
+        sign: -1,
+        start: -4200 + trackRand(0x51) * 2800,
+        len: 1600 + trackRand(0x52) * 1800,
+      },
+      {
+        id: 'track-siding-s',
+        lane: -1,
+        label: '侧线 S',
+        sign: 1,
+        start: 800 + trackRand(0x53) * 3600,
+        len: 1400 + trackRand(0x54) * 2000,
+      },
+      {
+        id: 'track-siding-n2',
+        lane: 1,
+        label: '侧线 N',
+        sign: -1,
+        start: 5200 + trackRand(0x55) * 2400,
+        len: 1200 + trackRand(0x56) * 1400,
+      },
+    ];
+    for (const loop of loops) {
+      const ul = buildPassingLoop(
+        mainUL,
+        loop.sign,
+        loop.start,
+        loop.start + loop.len,
+        TRACK_LANE_SEP
+      );
+      const vis = clipTrackUL(ul, halfSpan);
+      if (vis.length < 3) continue;
+      routes.push({
+        id: loop.id,
+        kind: 'siding',
+        lane: loop.lane,
+        label: loop.label,
+        points: trackUlToWorld(vis, midX, midY, forward),
+      });
+    }
+    return routes;
+  }
+
+  /**
+   * 雷达铁轨折线（兼容旧接口）：仅本列主轨点列。
+   * @returns {Array<{ x: number, y: number }>}
+   */
+  function getRadarTrackPolyline() {
+    return buildOwnTrackSpine();
   }
 
   /**
@@ -1258,8 +1584,10 @@
     setWorldSeed,
     getWorldSeed,
     getDockTrackMarkerSpan,
+    getRadarStationOrigin,
     getRadarPlatformBlip,
     getRadarTrackPolyline,
+    getRadarTrackRoutes,
     distanceToNearestStation,
     isNearPlatformMobSafeZone,
     /** 小怪禁近火车缓冲（路线单位）；只读常量供调试。 */

@@ -99,8 +99,8 @@ def _default_appearance(user_id: str) -> Dict[str, Any]:
 
 
 def _build_platforms() -> List[Dict[str, float]]:
-    # 与 carriage-spec CARRIAGES 对齐：卫兵→仓储→空车厢→动力→绘轨→枢机
-    cars = [COUPLER_JOIN * i for i in range(6)]
+    # 与 carriage-spec CARRIAGES 对齐：卫兵→塔莎→仓储→空车厢→动力→绘轨→枢机
+    cars = [COUPLER_JOIN * i for i in range(7)]
     floors = [
         {"left": wx + WALK_LEFT, "right": wx + WALK_RIGHT, "y": FLOOR_Y} for wx in cars
     ]
@@ -227,6 +227,8 @@ class LiminalPlayer:
         self.drone_vy = None
         self.drone_aim = None
         self.drone_phase = None
+        self.radar_open = False
+        self.radar_lock_aim = None
         # 所在场景：train | platform（客户端上报；发车锁用）
         self.scene = "train"
         self.inventories = Inv.PlayerInventories()
@@ -300,6 +302,13 @@ class LiminalPlayer:
         scene = str(getattr(self, "scene", "train") or "train").strip().lower()
         if scene in ("train", "platform"):
             data["scene"] = scene
+        if self.radar_open:
+            data["radarOpen"] = True
+            if self.radar_lock_aim is not None:
+                try:
+                    data["radarLockAim"] = round(float(self.radar_lock_aim), 4)
+                except (TypeError, ValueError):
+                    pass
         return data
 
 
@@ -643,6 +652,22 @@ class LiminalLobbyManager:
         elif not getattr(player, "scene", None):
             player.scene = "train"
         self._apply_drone_pose(player, payload)
+        self._apply_radar_pose(player, payload)
+
+    def _apply_radar_pose(self, player: LiminalPlayer, payload: Dict[str, Any]) -> None:
+        """绘轨雷达开闭与锁定角（供远端火控共享持续照射）。"""
+        if not bool(payload.get("radarOpen")):
+            player.radar_open = False
+            player.radar_lock_aim = None
+            return
+        player.radar_open = True
+        if "radarLockAim" in payload:
+            try:
+                player.radar_lock_aim = float(payload["radarLockAim"])
+            except (TypeError, ValueError):
+                player.radar_lock_aim = None
+        else:
+            player.radar_lock_aim = None
 
     def _apply_drone_pose(self, player: LiminalPlayer, payload: Dict[str, Any]) -> None:
         """写入伴飞无人机位姿（客户端权威，仅回显广播；缺字段则清掉）。

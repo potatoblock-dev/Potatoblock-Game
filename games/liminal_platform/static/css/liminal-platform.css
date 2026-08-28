@@ -84,6 +84,8 @@ body.lp-boiler-panel-open .lp-stage,
 body.lp-boiler-panel-open #lpCanvas,
 body.lp-radar-panel-open .lp-stage,
 body.lp-radar-panel-open #lpCanvas,
+body.lp-tasha-fc-open .lp-stage,
+body.lp-tasha-fc-open #lpCanvas,
 body.lp-auto-console-open .lp-stage,
 body.lp-auto-console-open #lpCanvas {
   cursor: auto;
@@ -97,6 +99,10 @@ body.lp-radar-panel-open .lp-crosshair,
 body.lp-radar-panel-open .lp-mobile-controls,
 body.lp-radar-panel-open .lp-hotbar-cluster,
 body.lp-radar-panel-open .lp-hud-top,
+body.lp-tasha-fc-open .lp-crosshair,
+body.lp-tasha-fc-open .lp-mobile-controls,
+body.lp-tasha-fc-open .lp-hotbar-cluster,
+body.lp-tasha-fc-open .lp-hud-top,
 body.lp-auto-console-open .lp-crosshair,
 body.lp-auto-console-open .lp-mobile-controls,
 body.lp-auto-console-open .lp-hotbar-cluster,
@@ -5799,7 +5805,7 @@ body.lp-inventory-open .lp-hud-top {
 .lp-radar-scope-row {
   display: flex;
   flex-direction: row;
-  align-items: stretch;
+  align-items: center;
   justify-content: center;
   gap: 8px;
   width: 100%;
@@ -5808,11 +5814,12 @@ body.lp-inventory-open .lp-hud-top {
 
 #lpRadarScopeCanvas {
   display: block;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   width: min(600px, calc(100% - 78px));
   height: auto;
   aspect-ratio: 1;
   border-radius: 50%;
+  overflow: hidden;
   box-shadow:
     0 0 0 3px #1a281c,
     0 0 0 1px rgb(100 160 110 / 0.35),
@@ -7267,8 +7274,9 @@ body.lp-inventory-open .lp-hud-top {
   max-width: 9em;
 }
 
-.lp-map-car--engine .lp-train-map-car-body,
+  .lp-map-car--engine .lp-train-map-car-body,
 .lp-map-car--defense .lp-train-map-car-body,
+.lp-map-car--artillery .lp-train-map-car-body,
 .lp-map-car--sensor .lp-train-map-car-body,
 .lp-map-car--compute .lp-train-map-car-body {
   border-color: color-mix(in srgb, var(--lp-map-tone) 70%, #94a3b8);
@@ -7901,3 +7909,466 @@ body.lp-platform-edit-open .lp-hud-top {
   color: #eff6ff;
 }
 
+
+/* —— 塔莎火控：真空管 / 磷光 CRT 风格 —— */
+.lp-tasha-fc-root {
+  position: fixed;
+  inset: 0;
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.lp-tasha-fc-root[hidden] {
+  display: none;
+}
+
+.lp-tasha-fc-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background: radial-gradient(ellipse at center, rgb(40 18 6 / 0.55), rgb(0 0 0 / 0.84));
+}
+
+.lp-tasha-fc-shell {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  width: min(720px, calc(100vw - 20px));
+  max-height: min(94vh, 820px);
+  overflow: auto;
+  padding: 14px 16px 12px;
+  color: #f6e7c1;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgb(180 90 30 / 0.18), transparent 55%),
+    linear-gradient(165deg, #3a2a1c 0%, #1c120c 48%, #120c08 100%);
+  border: 3px solid #6b4a2e;
+  box-shadow:
+    0 0 0 1px rgb(255 180 80 / 0.22),
+    0 0 0 5px #1a1008,
+    0 0 0 7px #8a6238,
+    0 18px 48px rgb(0 0 0 / 0.65),
+    inset 0 1px 0 rgb(255 210 140 / 0.12),
+    inset 0 0 0 2px rgb(0 0 0 / 0.5);
+  font-family: "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+}
+
+.lp-tasha-fc-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgb(180 120 60 / 0.35);
+}
+
+.lp-tasha-fc-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #c4a574;
+}
+
+.lp-tasha-fc-title {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #ffe6b0;
+  text-shadow: 0 0 12px rgb(255 160 40 / 0.35);
+}
+
+.lp-tasha-fc-close {
+  appearance: none;
+  border: 2px solid rgb(180 60 50 / 0.9);
+  background: rgb(120 32 24 / 0.92);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+.lp-tasha-fc-close:hover {
+  background: rgb(160 42 32);
+}
+
+.lp-tasha-fc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lp-tasha-fc-lamps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px;
+  background: #160e0a;
+  border: 2px solid #5c4030;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 180 100 / 0.08),
+    inset 0 0 28px rgb(0 0 0 / 0.65);
+}
+
+.lp-tasha-fc-lamp {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgb(100 70 40 / 0.55);
+  background: linear-gradient(180deg, #2a1c14, #18100c);
+}
+
+.lp-tasha-fc-lamp-bulb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2a2018;
+  box-shadow:
+    inset 0 0 4px rgb(0 0 0 / 0.8),
+    0 0 0 2px #3a2a1c;
+}
+
+.lp-tasha-fc-lamp[data-lamp="ready"].is-on .lp-tasha-fc-lamp-bulb {
+  background: radial-gradient(circle at 35% 30%, #d1fae5, #16a34a 55%, #14532d);
+  box-shadow:
+    0 0 10px rgb(74 222 128 / 0.85),
+    0 0 22px rgb(34 197 94 / 0.45),
+    inset 0 0 4px rgb(255 255 255 / 0.35);
+}
+
+.lp-tasha-fc-lamp[data-lamp="load"].is-on .lp-tasha-fc-lamp-bulb {
+  background: radial-gradient(circle at 35% 30%, #fef3c7, #f59e0b 55%, #92400e);
+  box-shadow:
+    0 0 10px rgb(251 191 36 / 0.9),
+    0 0 22px rgb(245 158 11 / 0.45),
+    inset 0 0 4px rgb(255 255 255 / 0.3);
+}
+
+.lp-tasha-fc-lamp[data-lamp="load"].is-blink .lp-tasha-fc-lamp-bulb {
+  animation: lp-tasha-lamp-blink 0.7s steps(2, end) infinite;
+}
+
+@keyframes lp-tasha-lamp-blink {
+  50% {
+    opacity: 0.35;
+    box-shadow: none;
+  }
+}
+
+.lp-tasha-fc-lamp-label {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: #e8d4a8;
+}
+
+.lp-tasha-fc-readouts {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 16px;
+  padding-top: 4px;
+  border-top: 1px dashed rgb(140 100 50 / 0.4);
+}
+
+.lp-tasha-fc-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lp-tasha-fc-readout-k {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #a88755;
+}
+
+.lp-tasha-fc-readout strong {
+  font-size: 15px;
+  color: #ffe6b0;
+  text-shadow: 0 0 8px rgb(255 160 40 / 0.35);
+}
+
+.lp-tasha-fc-seek {
+  padding: 12px;
+  background: #0a100a;
+  border: 3px solid #3a5540;
+  box-shadow:
+    inset 0 0 0 1px rgb(90 180 100 / 0.2),
+    inset 0 0 36px rgb(0 40 10 / 0.75),
+    0 0 0 1px #0a100a;
+}
+
+.lp-tasha-fc-seek-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.lp-tasha-fc-seek-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  color: #9ef0b0;
+  text-shadow: 0 0 10px rgb(74 222 128 / 0.45);
+}
+
+.lp-tasha-fc-seek-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #6fa87c;
+}
+
+.lp-tasha-fc-irst-cycle {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lp-tasha-fc-irst-btn {
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  border: 2px solid #3f6a48;
+  background: #102016;
+  color: #9ef0b0;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: inset 0 0 10px rgb(40 120 60 / 0.25);
+}
+
+.lp-tasha-fc-irst-btn:hover {
+  border-color: #6dff8a;
+  color: #c8ffd4;
+}
+
+.lp-tasha-fc-irst-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(140px, 0.85fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+@media (max-width: 640px) {
+  .lp-tasha-fc-irst-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lp-tasha-fc-irst-scope-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lp-tasha-fc-irst-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: min(42vh, 340px);
+  background: #020805;
+  border: 2px solid #2f4f36;
+  box-shadow:
+    inset 0 0 28px rgb(0 60 20 / 0.65),
+    0 0 0 1px rgb(90 180 100 / 0.15);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.lp-tasha-fc-irst-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #7dca8c;
+}
+
+.lp-tasha-fc-irst-meta span {
+  white-space: nowrap;
+}
+
+.lp-tasha-fc-seek-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(42vh, 340px);
+  overflow: auto;
+  min-height: 0;
+}
+
+.lp-tasha-fc-seek-empty {
+  margin: 0;
+  padding: 12px 8px;
+  font-size: 12px;
+  color: #5f8a68;
+  text-align: center;
+}
+
+.lp-tasha-fc-seek-row {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgb(60 100 70 / 0.55);
+  background: rgb(8 20 12 / 0.85);
+  color: #9bbda4;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lp-tasha-fc-seek-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lp-tasha-fc-seek-row.is-illuminated {
+  color: #d8ffe4;
+  border-color: rgb(74 222 128 / 0.55);
+  box-shadow: 0 0 10px rgb(34 197 94 / 0.18);
+}
+
+.lp-tasha-fc-seek-row.is-selected {
+  outline: 1px solid #86efac;
+  background: rgb(16 40 24 / 0.95);
+}
+
+.lp-tasha-fc-seek-lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #334;
+  flex-shrink: 0;
+}
+
+.lp-tasha-fc-seek-row.is-illuminated .lp-tasha-fc-seek-lamp {
+  background: #4ade80;
+  box-shadow: 0 0 8px rgb(74 222 128 / 0.9);
+}
+
+.lp-tasha-fc-seek-row.is-stale .lp-tasha-fc-seek-lamp {
+  background: #5a8a62;
+  box-shadow: 0 0 6px rgb(90 180 100 / 0.35);
+}
+
+.lp-tasha-fc-seek-row.is-stale {
+  border-color: #3a5040;
+  color: #8fbf98;
+}
+
+.lp-tasha-fc-seek-row.is-stale .lp-tasha-fc-seek-tag {
+  color: #6a9474;
+}
+
+.lp-tasha-fc-seek-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lp-tasha-fc-seek-tag {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #6fa87c;
+}
+
+.lp-tasha-fc-seek-row.is-illuminated .lp-tasha-fc-seek-tag {
+  color: #86efac;
+}
+
+.lp-tasha-fc-fire-bay {
+  padding: 12px;
+  background:
+    linear-gradient(180deg, #2c1c14, #18100c);
+  border: 2px solid #6b4428;
+  box-shadow: inset 0 0 20px rgb(0 0 0 / 0.55);
+}
+
+.lp-tasha-fc-safety-track {
+  position: relative;
+  height: 56px;
+  overflow: hidden;
+  border: 2px solid #8a6238;
+  background: #0c0806;
+  touch-action: none;
+  user-select: none;
+}
+
+.lp-tasha-fc-fire {
+  appearance: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: linear-gradient(180deg, #b91c1c, #7f1d1d);
+  color: #ffe4e6;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  cursor: pointer;
+}
+
+.lp-tasha-fc-fire:disabled {
+  background: linear-gradient(180deg, #4a3030, #2a1818);
+  color: #8a7070;
+  cursor: not-allowed;
+}
+
+.lp-tasha-fc-fire.is-armed {
+  box-shadow:
+    inset 0 0 16px rgb(255 80 40 / 0.35),
+    0 0 18px rgb(239 68 68 / 0.35);
+  text-shadow: 0 0 10px rgb(255 120 80 / 0.6);
+}
+
+.lp-tasha-fc-safety {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #4a3424 0 6px,
+      #3a281c 6px 12px
+    ),
+    linear-gradient(180deg, #6b4a2e, #3a2818);
+  border-right: 3px solid #c4a574;
+  color: #f6e7c1;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  box-shadow:
+    inset 0 2px 0 rgb(255 220 160 / 0.2),
+    4px 0 12px rgb(0 0 0 / 0.45);
+  will-change: transform;
+}
+
+.lp-tasha-fc-fire-hint,
+.lp-tasha-fc-footer-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #a88755;
+  text-align: center;
+}
+
+.lp-map-car--artillery {
+  --lp-map-tone: #9a3412;
+}

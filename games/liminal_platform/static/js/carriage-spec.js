@@ -4,8 +4,8 @@
  *
  * 世界约定：屏幕右侧为列车前进方向（世界 +X）；
  * 编组（左→右 = 车尾→车头前进方向）：
- * 卫兵防御 → 仓储 → 空车厢 → 动力 → 绘轨 → 枢机
- * （空车厢夹在仓储与动力之间，便于物资/设施往返；绘轨接在动力前，枢机接在绘轨前。）
+ * 卫兵防御 → 塔莎火箭弹 → 仓储 → 空车厢 → 动力 → 绘轨 → 枢机
+ * （塔莎为可选武装车，默认可编；空车厢夹在仓储与动力之间；绘轨接动力前，枢机接绘轨前。）
  */
 (() => {
   const ART_MODULE_W = 2250;
@@ -84,11 +84,23 @@
       },
     },
     {
+      id: 'tasha',
+      label: '塔莎火箭弹车厢',
+      image: '/static/games/liminal-platform/img/cars/tasha-rocket/tasha-rocket-car-base.png?v=1',
+      icon: '/static/games/liminal-platform/img/cars/tasha-rocket/tasha-rocket-icon.png?v=1',
+      worldX: COUPLER_JOIN_OFFSET,
+      map: {
+        shortLabel: '塔莎',
+        kind: 'artillery',
+        tone: '#9a3412',
+      },
+    },
+    {
       id: 'storage',
       label: '仓储车厢',
       image: '/static/games/liminal-platform/img/cars/storage-car.png?v=5',
       icon: '/static/games/liminal-platform/img/cars/storage-car-icon.png?v=1',
-      worldX: COUPLER_JOIN_OFFSET,
+      worldX: COUPLER_JOIN_OFFSET * 2,
       /** 可按 P 进入设施摆放编辑。 */
       facilityEditable: true,
       map: {
@@ -102,7 +114,7 @@
       label: '空车厢',
       image: '/static/games/liminal-platform/img/cars/empty-car.png?v=1',
       icon: '/static/games/liminal-platform/img/cars/empty-car-icon.png?v=1',
-      worldX: COUPLER_JOIN_OFFSET * 2,
+      worldX: COUPLER_JOIN_OFFSET * 3,
       facilityEditable: true,
       map: {
         shortLabel: '空车',
@@ -115,7 +127,7 @@
       label: '动力车厢',
       image: '/static/games/liminal-platform/img/cars/power-car.png?v=4',
       icon: '/static/games/liminal-platform/img/cars/power-car-icon.png?v=1',
-      worldX: COUPLER_JOIN_OFFSET * 3,
+      worldX: COUPLER_JOIN_OFFSET * 4,
       map: {
         shortLabel: '动力',
         kind: 'engine',
@@ -127,7 +139,7 @@
       label: '绘轨车厢',
       image: '/static/games/liminal-platform/img/cars/huigui-car.png?v=2',
       icon: '/static/games/liminal-platform/img/cars/huigui-car-icon.png?v=1',
-      worldX: COUPLER_JOIN_OFFSET * 4,
+      worldX: COUPLER_JOIN_OFFSET * 5,
       map: {
         shortLabel: '绘轨',
         kind: 'sensor',
@@ -139,7 +151,7 @@
       label: '枢机车厢',
       image: '/static/games/liminal-platform/img/cars/shuji-car.png?v=1',
       icon: '/static/games/liminal-platform/img/cars/shuji-car-icon.png?v=1',
-      worldX: COUPLER_JOIN_OFFSET * 5,
+      worldX: COUPLER_JOIN_OFFSET * 6,
       map: {
         shortLabel: '枢机',
         kind: 'compute',

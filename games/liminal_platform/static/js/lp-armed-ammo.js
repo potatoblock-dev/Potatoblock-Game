@@ -21,7 +21,8 @@
   const STORAGE_KEY = 'lp-armed-belts-v1';
 
   /**
-   * 弹种目录（AP=穿甲，T=曳光）。trail / bodyTint 供 LpCombat；penetrates 留给后续玩法。
+   * 弹种目录（AP=穿甲，T=曳光，rocket=塔莎火箭弹视觉占位）。
+   * trail / bodyTint 供 LpCombat；penetrates 留给后续玩法。
    */
   const AMMO_TYPES = {
     ap: {
@@ -62,6 +63,26 @@
       },
       penetrates: false,
     },
+    rocket: {
+      id: 'rocket',
+      tag: 'RKT',
+      subtitle: '火箭',
+      color: '#9a3412',
+      accent: '#fb923c',
+      role: '火箭弹',
+      use: '塔莎火箭弹：需雷达持续照射目标；爆炸范围伤害。',
+      body: '#d6d3d1',
+      band: '#9a3412',
+      tip: '#b91c1c',
+      trail: {
+        color: 'rgba(251, 146, 60, 0.9)',
+        glow: 'rgba(234, 88, 12, 0.5)',
+        length: 18,
+        width: 4,
+        linger: 0.4,
+      },
+      penetrates: false,
+    },
   };
 
   /**
@@ -89,14 +110,12 @@
         ['ap', 'ap', 'ap'],
       ],
     },
-    /* 示例（未启用）：火炮类仅选弹种
-    artillery: {
-      id: 'artillery',
-      label: '火炮',
-      allowedTypes: ['ap', 't'],
+    tasha: {
+      id: 'tasha',
+      label: '塔莎',
+      allowedTypes: ['rocket'],
       supportsBelts: false,
     },
-    */
   };
 
   /** @deprecated 兼容旧调用；等同 allowedTypes。 */
@@ -940,6 +959,7 @@
       document.body.classList.contains('lp-crate-feed-open') ||
       document.body.classList.contains('lp-boiler-panel-open') ||
       document.body.classList.contains('lp-radar-panel-open') ||
+      document.body.classList.contains('lp-tasha-fc-open') ||
       document.body.classList.contains('lp-auto-console-open') ||
       document.body.classList.contains('lp-train-map-open') ||
       document.body.classList.contains('lp-dungeon-map-open');

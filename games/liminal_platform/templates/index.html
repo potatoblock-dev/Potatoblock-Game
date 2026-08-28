@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>{{ game.name }} · Liminal Platform</title>
   <link rel="stylesheet" href="/static/css/site.css">
-  <link rel="stylesheet" href="/static/games/liminal-platform/css/liminal-platform.css?v=163">
+  <link rel="stylesheet" href="/static/games/liminal-platform/css/liminal-platform.css?v=166">
   <style>
     /* 首屏即显，不依赖外链 CSS 下载完 */
     .lp-boot-splash {
@@ -173,7 +173,7 @@
           <aside id="lpTrainMinimap" class="lp-train-minimap lp-desktop-only" aria-label="列车编组小地图" title="打开完整地图 (M)" role="button" tabindex="0">
             <div class="lp-train-minimap-head">
               <span class="lp-train-minimap-title">编组</span>
-              <span id="lpTrainMinimapActive" class="lp-train-minimap-active">—</span>
+              <span id="lpTrainMinimapActive" class="lp-train-minimap-active">···</span>
             </div>
             <ol id="lpTrainMinimapCars" class="lp-train-minimap-cars"></ol>
             <p class="lp-train-minimap-legend" aria-hidden="true">右 = 前进 · M 地图</p>
@@ -181,7 +181,7 @@
           <aside id="lpDungeonMinimap" class="lp-dungeon-minimap" hidden aria-hidden="true" aria-label="地牢结构">
             <div class="lp-dungeon-minimap-head">
               <span class="lp-dungeon-minimap-title">地牢</span>
-              <span id="lpDungeonMinimapFloor" class="lp-dungeon-minimap-floor">—</span>
+              <span id="lpDungeonMinimapFloor" class="lp-dungeon-minimap-floor">···</span>
             </div>
             <canvas id="lpDungeonMinimapCanvas" width="168" height="132" aria-hidden="true"></canvas>
             <p class="lp-dungeon-minimap-legend" aria-hidden="true">⌂ 安全 · ▲ 敌 · ▮ 仓 · M 地图</p>
@@ -245,7 +245,7 @@
         </div>
       </div>
       <div id="lpLoadError" class="lp-load-error" hidden>
-        <p>车厢素材加载失败，请确认 static/img/cars 下已有 power-car.png、storage-car.png 与 guard-car.png。</p>
+        <p>车厢素材加载失败，请确认 static/img/cars 下已有 power-car、storage-car、guard-car 与 tasha-rocket 等贴图。</p>
       </div>
     </div>
     <div id="lpInventoryRoot" class="lp-inventory-root" hidden aria-hidden="true">
@@ -680,7 +680,7 @@
           <h2 class="lp-train-map-title">列车地图</h2>
         </div>
         <div class="lp-train-map-header-meta">
-          <span id="lpTrainMapActive" class="lp-train-map-active">—</span>
+          <span id="lpTrainMapActive" class="lp-train-map-active">···</span>
           <button type="button" id="lpTrainMapClose" class="lp-train-map-close">关闭</button>
         </div>
       </header>
@@ -702,7 +702,7 @@
           <h2 class="lp-dungeon-map-title">地牢地图</h2>
         </div>
         <div class="lp-dungeon-map-header-meta">
-          <span id="lpDungeonMapFloor" class="lp-dungeon-map-floor">—</span>
+          <span id="lpDungeonMapFloor" class="lp-dungeon-map-floor">···</span>
           <button type="button" id="lpDungeonMapClose" class="lp-dungeon-map-close">关闭</button>
         </div>
       </header>
@@ -779,10 +779,10 @@
           </div>
         </div>
         <div class="lp-radar-readouts">
-          <span id="lpRadarModeReadout">接触 — · PPI</span>
-          <span id="lpRadarSectorRpmReadout" title="锁定扇区扫描往返转速">扇扫 —</span>
+          <span id="lpRadarModeReadout">接触 ··· · PPI</span>
+          <span id="lpRadarSectorRpmReadout" title="锁定扇区扫描往返转速">扇扫 ···</span>
           <div class="lp-radar-range-row">
-            <span id="lpRadarRangeReadout">量程 —</span>
+            <span id="lpRadarRangeReadout">量程 ···</span>
             <div class="lp-radar-range-btns" aria-label="量程调节">
               <button type="button" id="lpRadarRangeFar" class="lp-radar-range-btn" aria-label="量程更远">远</button>
               <button type="button" id="lpRadarRangeNear" class="lp-radar-range-btn" aria-label="量程更近">近</button>
@@ -801,8 +801,79 @@
           <span class="lp-radar-aim-label">LOCK</span>
         </div>
       </div>
-      <p class="lp-radar-hint lp-desktop-only">鼠标/摇杆转锁定扇区 · 滚轮或档位拉杆调量程 · 本列车厢与铁轨 · F / Esc 离开</p>
+      <p class="lp-radar-hint lp-desktop-only">鼠标/摇杆转锁定扇区 · 滚轮或档位拉杆调量程 · 本线/侧线铁轨 · F / Esc 离开</p>
       <p class="lp-radar-hint lp-mobile-only">摇杆转锁定扇区 · 拉杆档位 / 双指缩放 /「远近」调量程 · 点离开退出</p>
+    </div>
+  </div>
+
+  <div id="lpTashaFcRoot" class="lp-tasha-fc-root" hidden aria-hidden="true">
+    <div class="lp-tasha-fc-backdrop"></div>
+    <div class="lp-tasha-fc-shell" role="dialog" aria-modal="true" aria-label="塔莎火控台">
+      <header class="lp-tasha-fc-header">
+        <div>
+          <p class="lp-tasha-fc-eyebrow">武装车厢 · 远程火力</p>
+          <h2 class="lp-tasha-fc-title">塔莎火控</h2>
+        </div>
+        <button type="button" id="lpTashaFcClose" class="lp-tasha-fc-close">离开</button>
+      </header>
+
+      <div class="lp-tasha-fc-body">
+        <section class="lp-tasha-fc-lamps" aria-label="装填状态">
+          <div id="lpTashaFcLampReady" class="lp-tasha-fc-lamp" data-lamp="ready">
+            <span class="lp-tasha-fc-lamp-bulb" aria-hidden="true"></span>
+            <span class="lp-tasha-fc-lamp-label">待发</span>
+          </div>
+          <div id="lpTashaFcLampLoad" class="lp-tasha-fc-lamp" data-lamp="load">
+            <span class="lp-tasha-fc-lamp-bulb" aria-hidden="true"></span>
+            <span class="lp-tasha-fc-lamp-label">正在装填</span>
+          </div>
+          <div class="lp-tasha-fc-readouts">
+            <div class="lp-tasha-fc-readout">
+              <span class="lp-tasha-fc-readout-k">弹药</span>
+              <strong id="lpTashaFcAmmo">0</strong>
+            </div>
+            <div class="lp-tasha-fc-readout">
+              <span class="lp-tasha-fc-readout-k">状态</span>
+              <strong id="lpTashaFcStatus">···</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="lp-tasha-fc-seek" aria-label="索敌">
+          <div class="lp-tasha-fc-seek-head">
+            <div>
+              <h3 class="lp-tasha-fc-seek-title">IRST 目标选择</h3>
+              <p class="lp-tasha-fc-seek-hint">点击示波器选目标 · ←/→ 或按钮切换 · 照射=实时 · 磷光=滞后</p>
+            </div>
+            <div class="lp-tasha-fc-irst-cycle" role="group" aria-label="切换目标">
+              <button type="button" id="lpTashaFcIrstPrev" class="lp-tasha-fc-irst-btn" title="上一个目标">◀</button>
+              <button type="button" id="lpTashaFcIrstNext" class="lp-tasha-fc-irst-btn" title="下一个目标">▶</button>
+            </div>
+          </div>
+          <div class="lp-tasha-fc-irst-row">
+            <div class="lp-tasha-fc-irst-scope-wrap">
+              <canvas id="lpTashaFcIrst" class="lp-tasha-fc-irst-canvas" width="320" height="320" aria-label="IRST 示波器"></canvas>
+              <div class="lp-tasha-fc-irst-meta">
+                <span id="lpTashaFcIrstTrack">TGT ···</span>
+                <span id="lpTashaFcIrstMode">待机</span>
+                <span id="lpTashaFcIrstRange">RNG ···</span>
+              </div>
+            </div>
+            <div id="lpTashaFcSeekList" class="lp-tasha-fc-seek-list" role="listbox" aria-label="接触列表"></div>
+          </div>
+        </section>
+
+        <section class="lp-tasha-fc-fire-bay" aria-label="开火">
+          <div id="lpTashaFcSafetyTrack" class="lp-tasha-fc-safety-track" title="向右滑动打开保险">
+            <button type="button" id="lpTashaFcFire" class="lp-tasha-fc-fire" disabled>开火</button>
+            <div id="lpTashaFcSafety" class="lp-tasha-fc-safety" aria-hidden="true">
+              <span>保险</span>
+            </div>
+          </div>
+          <p class="lp-tasha-fc-fire-hint">滑动保险盖 → 开火</p>
+        </section>
+      </div>
+      <p class="lp-tasha-fc-footer-hint lp-desktop-only">←/→ 切换目标 · F / Esc 离开火控台</p>
     </div>
   </div>
 
@@ -965,20 +1036,20 @@
   <script src="/static/games/avatar-lobby/js/procedural-motion.js?v=15"></script>
   <script src="/static/games/avatar-lobby/js/avatar-skin-cache.js?v=1"></script>
   <script src="/static/games/avatar-lobby/js/avatar-entity.js?v=30"></script>
-  <script src="/static/games/liminal-platform/js/carriage-spec.js?v=23"></script>
-  <script src="/static/games/liminal-platform/js/lp-item-catalog.js?v=73"></script>
-  <script src="/static/games/liminal-platform/js/lp-inventory-core.js?v=29"></script>
+  <script src="/static/games/liminal-platform/js/carriage-spec.js?v=24"></script>
+  <script src="/static/games/liminal-platform/js/lp-item-catalog.js?v=75"></script>
+  <script src="/static/games/liminal-platform/js/lp-inventory-core.js?v=30"></script>
   <script src="/static/games/liminal-platform/js/lp-key-prompts.js?v=1"></script>
   <script src="/static/games/liminal-platform/js/lp-input-bindings.js?v=22"></script>
-  <script src="/static/games/liminal-platform/js/liminal-interact-spec.js?v=12"></script>
-  <script src="/static/games/liminal-platform/js/liminal-interact.js?v=27"></script>
+  <script src="/static/games/liminal-platform/js/liminal-interact-spec.js?v=13"></script>
+  <script src="/static/games/liminal-platform/js/liminal-interact.js?v=28"></script>
   <script src="/static/games/liminal-platform/js/lp-ground-loot.js?v=5"></script>
   <script src="/static/games/liminal-platform/js/lp-inventory-net.js?v=3"></script>
-  <script src="/static/games/liminal-platform/js/lp-inventory-ui.js?v=53"></script>
+  <script src="/static/games/liminal-platform/js/lp-inventory-ui.js?v=54"></script>
   <script src="/static/games/liminal-platform/js/lp-hands-hud.js?v=15"></script>
-  <script src="/static/games/liminal-platform/js/lp-armed-ammo.js?v=18"></script>
+  <script src="/static/games/liminal-platform/js/lp-armed-ammo.js?v=19"></script>
   <script src="/static/games/liminal-platform/js/lp-fuel-feed.js?v=12"></script>
-  <script src="/static/games/liminal-platform/js/lp-guard-crate-ui.js?v=17"></script>
+  <script src="/static/games/liminal-platform/js/lp-guard-crate-ui.js?v=18"></script>
   <script src="/static/games/liminal-platform/js/lp-touch-controls.js?v=22"></script>
   <script src="/static/games/liminal-platform/js/lp-weapon-hold.js?v=15"></script>
   {% if lp_local_debug %}
@@ -989,40 +1060,41 @@
   <script src="/static/games/liminal-platform/js/lp-impact-fx.js?v=2"></script>
   <script src="/static/games/liminal-platform/js/lp-mob-death-fx.js?v=1"></script>
   <script src="/static/games/liminal-platform/js/lp-muzzle-flash.js?v=1"></script>
-  <script src="/static/games/liminal-platform/js/lp-combat.js?v=55"></script>
+  <script src="/static/games/liminal-platform/js/lp-combat.js?v=56"></script>
   <script src="/static/games/liminal-platform/js/lp-medkit.js?v=5"></script>
   <script src="/static/games/liminal-platform/js/lp-carriage-fire.js?v=1"></script>
   <script src="/static/games/liminal-platform/js/lp-fire-extinguisher.js?v=6"></script>
-  <script src="/static/games/liminal-platform/js/lp-hummingbird-drone.js?v=10"></script>
+  <script src="/static/games/liminal-platform/js/lp-hummingbird-drone.js?v=11"></script>
   <script src="/static/games/liminal-platform/js/lp-guard-turret.js?v=80"></script>
+  <script src="/static/games/liminal-platform/js/lp-tasha-rocket.js?v=9"></script>
   <script src="/static/games/liminal-platform/js/lp-sfx.js?v=9"></script>
   <script src="/static/games/liminal-platform/js/lp-fun-egg.js?v=2"></script>
   <script src="/static/games/liminal-platform/js/lp-train-audio.js?v=5"></script>
   <script src="/static/games/liminal-platform/js/lp-platform-ambience.js?v=3"></script>
   <script src="/static/games/liminal-platform/js/lp-platform-dock-music.js?v=1"></script>
-  <script src="/static/games/liminal-platform/js/lp-dungeon.js?v=11"></script>
+  <script src="/static/games/liminal-platform/js/lp-dungeon.js?v=13"></script>
   <script src="/static/games/liminal-platform/js/lp-dungeon-fow.js?v=2"></script>
   <script src="/static/games/liminal-platform/js/lp-dungeon-minimap.js?v=8"></script>
   <script src="/static/games/liminal-platform/js/lp-dungeon-map.js?v=1"></script>
-  <script src="/static/games/liminal-platform/js/lp-platform.js?v=22"></script>
+  <script src="/static/games/liminal-platform/js/lp-platform.js?v=30"></script>
   <script src="/static/games/liminal-platform/js/lp-whistle-audio.js?v=2"></script>
   <script src="/static/games/liminal-platform/js/lp-train-drive.js?v=13"></script>
   <script src="/static/games/liminal-platform/js/lp-carriage-bob.js?v=3"></script>
   <script src="/static/games/liminal-platform/js/lp-track.js?v=8"></script>
   <script src="/static/games/liminal-platform/js/lp-mob-bubble-fill.js?v=8"></script>
   <script src="/static/games/liminal-platform/js/lp-world-background.js?v=5"></script>
-  <script src="/static/games/liminal-platform/js/lp-parallax-layers.js?v=1"></script>
+  <script src="/static/games/liminal-platform/js/lp-parallax-layers.js?v=3"></script>
   <script src="/static/games/liminal-platform/js/lp-station-transit.js?v=1"></script>
   <script src="/static/games/liminal-platform/js/lp-view-filters.js?v=1"></script>
   <script src="/static/games/liminal-platform/js/lp-mobs.js?v=26"></script>
-  <script src="/static/games/liminal-platform/js/lp-pressure.js?v=3"></script>
+  <script src="/static/games/liminal-platform/js/lp-pressure.js?v=4"></script>
   <script src="/static/games/liminal-platform/js/lp-player-death.js?v=1"></script>
-  <script src="/static/games/liminal-platform/js/lp-hud-vitals.js?v=2"></script>
+  <script src="/static/games/liminal-platform/js/lp-hud-vitals.js?v=3"></script>
   <script src="/static/games/liminal-platform/js/lp-train-minimap.js?v=4"></script>
   <script src="/static/games/liminal-platform/js/lp-train-map.js?v=2"></script>
   <script src="/static/games/liminal-platform/js/lp-facility-edit.js?v=18"></script>
   <script src="/static/games/liminal-platform/js/lp-boiler-panel.js?v=17"></script>
-  <script src="/static/games/liminal-platform/js/lp-radar-scope.js?v=30"></script>
+  <script src="/static/games/liminal-platform/js/lp-radar-scope.js?v=36"></script>
   <script src="/static/games/liminal-platform/js/lp-auto-program-catalog.js?v=20"></script>
   <script src="/static/games/liminal-platform/js/lp-auto-program.js?v=10"></script>
   <script src="/static/games/liminal-platform/js/lp-auto-program-belts.js?v=2"></script>
@@ -1032,8 +1104,8 @@
   <script src="/static/games/liminal-platform/js/lp-auto-console.js?v=23"></script>
   <script src="/static/games/liminal-platform/js/lp-network.js?v=13"></script>
   <script src="/static/games/liminal-platform/js/lp-multiplayer-ui.js?v=3"></script>
-  <script src="/static/games/liminal-platform/js/lp-session.js?v=23"></script>
+  <script src="/static/games/liminal-platform/js/lp-session.js?v=24"></script>
   <script src="/static/games/liminal-platform/js/lp-fullscreen.js?v=2"></script>
-  <script src="/static/games/liminal-platform/js/liminal-platform.js?v=106"></script>
+  <script src="/static/games/liminal-platform/js/liminal-platform.js?v=109"></script>
 </body>
 </html>

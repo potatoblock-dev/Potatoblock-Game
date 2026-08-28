@@ -34,6 +34,10 @@
       root.classList.add('has-ammo-bottom');
       layout?.classList.add('has-ammo-bottom');
       window.LpArmedAmmo.mountCrateBottom?.(ammoBottom, 'guard');
+    } else if (mode === 'tasha') {
+      root.classList.add('has-ammo-bottom');
+      layout?.classList.add('has-ammo-bottom');
+      window.LpArmedAmmo.mountCrateBottom?.(ammoBottom, 'tasha');
     } else {
       root.classList.remove('has-ammo-bottom');
       layout?.classList.remove('has-ammo-bottom');
@@ -59,10 +63,18 @@
       theme: 'recycle',
       chunk: 10,
     },
+    tasha: {
+      itemId: 'rocket_ammo',
+      crateTitle: '火箭弹药箱',
+      crateSub: '拖入存放 · 拖出取出',
+      bagTitle: '背包火箭弹',
+      theme: 'ammo',
+      chunk: 2,
+    },
   };
 
   let open = false;
-  /** @type {'ammo'|'recycle'|null} */
+  /** @type {'ammo'|'recycle'|'tasha'|null} */
   let mode = null;
   /** @type {{ pointerId: number, from: 'crate'|'bag', slotEl: HTMLElement, rot: number } | null} */
   let drag = null;
@@ -81,6 +93,7 @@
 
   /** 箱内权威库存。 */
   function crateInventory() {
+    if (mode === 'tasha') return window.LpTashaRocket?.getAmmoInventory?.() ?? null;
     return window.LpGuardTurret?.getCrateInventory?.(mode) ?? null;
   }
 
@@ -96,6 +109,7 @@
   function countCrate() {
     const c = cfg();
     if (!c) return 0;
+    if (mode === 'tasha') return window.LpTashaRocket?.ammoCount?.() ?? 0;
     if (mode === 'ammo') return window.LpGuardTurret?.ammoCount?.() ?? 0;
     return window.LpGuardTurret?.casingCount?.() ?? 0;
   }
@@ -322,6 +336,7 @@
   function deposit(qty) {
     const c = cfg();
     if (!c || qty <= 0) return 0;
+    if (mode === 'tasha') return window.LpTashaRocket?.depositItem?.(qty) ?? 0;
     return window.LpGuardTurret?.depositItem?.(mode, qty) ?? 0;
   }
 
@@ -329,6 +344,7 @@
   function withdraw(qty) {
     const c = cfg();
     if (!c || qty <= 0) return 0;
+    if (mode === 'tasha') return window.LpTashaRocket?.withdrawItem?.(qty) ?? 0;
     return window.LpGuardTurret?.withdrawItem?.(mode, qty) ?? 0;
   }
 
@@ -363,6 +379,9 @@
     if (window.LpGuardTurret?.isManned?.()) {
       window.LpGuardTurret.exitTurret();
     }
+    if (window.LpTashaRocket?.isFireControlOpen?.()) {
+      window.LpTashaRocket.closeFireControl();
+    }
     if (window.LpInventory?.isOpen()) window.LpInventory.close();
     if (window.LpBoilerPanel?.isOpen()) window.LpBoilerPanel.close();
     if (window.LpFuelFeed?.isOpen()) window.LpFuelFeed.close();
@@ -377,7 +396,11 @@
     const c = cfg();
     if (countPlayer(c.itemId) <= 0 && countCrate() <= 0) {
       window.LiminalInteract?.showToast?.(
-        mode === 'ammo' ? '背包与弹药箱都没有弹药' : '回收箱与背包都没有弹壳'
+        mode === 'ammo'
+          ? '背包与弹药箱都没有弹药'
+          : mode === 'tasha'
+            ? '背包与弹药箱都没有火箭弹'
+            : '回收箱与背包都没有弹壳'
       );
     }
   }
@@ -552,6 +575,7 @@
     open: openPanel,
     openAmmo: () => openPanel('ammo'),
     openRecycle: () => openPanel('recycle'),
+    openTasha: () => openPanel('tasha'),
     close: closePanel,
     isOpen,
     getMode: () => mode,

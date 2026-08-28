@@ -33,7 +33,7 @@
       type: 'fuel',
       /** 投入锅炉时每单位提供的燃料值；未来其它燃料同样声明此字段即可。 */
       boilerFuel: 18,
-      use: '从古至今，煤炭都是最要紧的能源之一——丢进锅炉，列车才肯往前走。',
+      use: '从古至今，煤炭都是最要紧的能源之一。丢进锅炉，列车才肯往前走。',
       color: '#1f2937',
       accent: '#475569',
       maxStack: 100,
@@ -60,7 +60,7 @@
       name: '铁板',
       short: '铁',
       type: 'metal',
-      use: '压扁的铁板，厚实可靠——加固车厢、锻造零件都靠它。',
+      use: '压扁的铁板，厚实可靠，加固车厢、锻造零件都靠它。',
       color: '#475569',
       accent: '#94a3b8',
       maxStack: 50,
@@ -73,7 +73,7 @@
       name: '废料',
       short: '废',
       type: 'material',
-      use: '各种材料糅合在一起——也许会有人愿意回收它们。',
+      use: '各种材料糅合在一起，也许会有人愿意回收它们。',
       color: '#334155',
       accent: '#64748b',
       maxStack: 50,
@@ -87,7 +87,7 @@
       name: '扳手',
       short: '扳',
       type: 'tool',
-      use: '用于日常检修设备——不过真正的工程师，可不会只用它来修东西。',
+      use: '用于日常检修设备，不过真正的工程师，可不会只用它来修东西。',
       color: '#854d0e',
       accent: '#ca8a04',
       maxStack: 1,
@@ -121,6 +121,20 @@
       h: 2,
       canHoldInHand: true,
       icon: '/static/games/liminal-platform/img/items/turret-ammo-icon.png?v=1',
+    },
+    rocket_ammo: {
+      id: 'rocket_ammo',
+      name: '塔莎火箭弹',
+      short: '火箭',
+      type: 'ammo',
+      use: '塔莎火箭弹车厢专用弹药。需雷达持续照射目标后方可发射。',
+      color: '#9a3412',
+      accent: '#fb923c',
+      maxStack: 20,
+      w: 2,
+      h: 1,
+      canHoldInHand: true,
+      icon: '/static/games/liminal-platform/img/cars/tasha-rocket/tasha-rocket.png?v=1',
     },
     shell_casing: {
       id: 'shell_casing',
@@ -165,7 +179,7 @@
        */
       weaponClass: 'machine_gun',
       fullAuto: true,
-      use: '制式武器，采用 6.5mm 弹药与顶部供弹，小巧轻便——对刚登上列车的新人来说，性能再合适不过。',
+      use: '制式武器，采用 6.5mm 弹药与顶部供弹，小巧轻便，对刚登上列车的新人来说，性能再合适不过。',
       color: '#1f2937',
       accent: '#9ca3af',
       maxStack: 1,
@@ -588,7 +602,7 @@
 
   /** 装备槽中文名。 */
   function equipSlotLabel(slotKey) {
-    return EQUIP_SLOT_LABELS[slotKey] || slotKey || '—';
+    return EQUIP_SLOT_LABELS[slotKey] || slotKey || '···';
   }
 
   /** 类型中文名。 */

@@ -28,6 +28,11 @@
 </style>
     <div class="w-full max-w-sm bg-gray-900 rounded-xl p-8 login-card">
         <h1 class="text-2xl font-light text-center mb-6">土豆方块通行证登录</h1>
+        <p class="text-sm text-gray-400 text-center mb-4">本站登录不含人机验证，请使用通行证登录。</p>
+        <a href="https://passport.potatoblock.com/login" id="passportLoginLink"
+           class="mb-6 block w-full text-center bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded transition-colors">
+            前往通行证登录
+        </a>
         <form method="post" action="/login">
             <input type="hidden" name="next" id="loginNext" value="/">
             <script>
@@ -35,6 +40,11 @@
               var p = new URLSearchParams(location.search);
               var n = p.get('next');
               if (n) document.getElementById('loginNext').value = n;
+              var link = document.getElementById('passportLoginLink');
+              if (link && n) {
+                var returnUrl = window.location.origin + n;
+                link.href = 'https://passport.potatoblock.com/login?return_url=' + encodeURIComponent(returnUrl);
+              }
             })();
             </script>
             <div class="mb-4">

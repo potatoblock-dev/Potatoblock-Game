@@ -293,7 +293,7 @@
         hpFill.style.transform = 'scaleX(0)';
         hpFill.style.background = '';
       }
-      if (hpLabel) hpLabel.textContent = '—';
+      if (hpLabel) hpLabel.textContent = '···';
     } else {
       row.classList.remove('is-hp-unknown');
       const pct = Math.max(0, Math.min(1, data.hp / Math.max(1, data.maxHp)));
@@ -307,7 +307,7 @@
     if (data.pressure == null || !Number.isFinite(data.pressure)) {
       row.classList.add('is-pressure-unknown');
       if (prFill) prFill.style.width = '0%';
-      if (prLabel) prLabel.textContent = '—';
+      if (prLabel) prLabel.textContent = '···';
     } else {
       row.classList.remove('is-pressure-unknown');
       const maxPr = Math.max(1, Number(data.maxPressure) || 200);
@@ -332,11 +332,11 @@
         <div class="lp-vital-name" data-role="name"></div>
         <div class="lp-hp-bar lp-hp-bar--mate" aria-label="生命值">
           <span class="lp-hp-fill" data-role="hp-fill"></span>
-          <span class="lp-hp-label" data-role="hp-label">—</span>
+          <span class="lp-hp-label" data-role="hp-label">···</span>
         </div>
         <div class="lp-pressure-bar lp-pressure-bar--mate" aria-label="压力">
           <span class="lp-pressure-fill" data-role="pr-fill"></span>
-          <span class="lp-pressure-label" data-role="pr-label">—</span>
+          <span class="lp-pressure-label" data-role="pr-label">···</span>
         </div>
       </div>
     `;

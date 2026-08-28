@@ -36,6 +36,10 @@
       window.LpGuardTurret.exitTurret();
       return true;
     }
+    if (window.LpTashaRocket?.isFireControlOpen?.()) {
+      window.LpTashaRocket.closeFireControl();
+      return true;
+    }
     if (window.LpPlatform?.tryInteract?.(local)) return true;
     const spot = findActive(local);
     if (!spot) return false;
@@ -180,6 +184,10 @@
         return window.LpGuardTurret?.interactAmmoBox?.() ?? false;
       case 'guardRecycle':
         return window.LpGuardTurret?.interactRecycleBox?.() ?? false;
+      case 'openTashaFireControl':
+        return window.LpTashaRocket?.openFireControl?.() ?? false;
+      case 'tashaAmmo':
+        return window.LpTashaRocket?.interactAmmo?.() ?? false;
       case 'openRadarScope':
         window.LpRadarScope?.open();
         return Boolean(window.LpRadarScope);
@@ -196,6 +204,10 @@
   function tryInteract(local) {
     if (window.LpGuardTurret?.isManned?.()) {
       window.LpGuardTurret.exitTurret();
+      return true;
+    }
+    if (window.LpTashaRocket?.isFireControlOpen?.()) {
+      window.LpTashaRocket.closeFireControl();
       return true;
     }
     if (window.LpPlatform?.tryInteract?.(local)) return true;
@@ -442,6 +454,10 @@
   function spotActionLabel(spot, keyLabel) {
     if (spot.action === 'guardAmmo') {
       const n = window.LpGuardTurret?.ammoCount?.() ?? 0;
+      return `按 ${keyLabel} ${spot.actionLabel}（箱内 ${n}）`;
+    }
+    if (spot.action === 'tashaAmmo') {
+      const n = window.LpTashaRocket?.ammoCount?.() ?? 0;
       return `按 ${keyLabel} ${spot.actionLabel}（箱内 ${n}）`;
     }
     if (spot.action === 'guardRecycle') {

@@ -1,11 +1,30 @@
-/** 通行证弹窗登录：打开 /login?popup=1，完成后由 /pwa/login-done 通知父页。 */
+/** 通行证登录：桌面弹窗；移动端/PWA 跳转 passport 站（带人机验证）。 */
 (function () {
   'use strict';
 
   const POPUP_NAME = 'potatoblock-passport-login';
   const MESSAGE_TYPE = 'pb-login-done';
+  const PASSPORT_ORIGIN = 'https://passport.potatoblock.com';
+
+  function isMobileLike() {
+    return window.matchMedia('(max-width: 767px)').matches
+      || window.matchMedia('(pointer: coarse)').matches
+      || navigator.maxTouchPoints > 1
+      || window.matchMedia('(display-mode: standalone)').matches;
+  }
+
+  function passportLoginUrl(returnPath) {
+    const next = returnPath || window.location.pathname + window.location.search;
+    const returnUrl = window.location.origin + next;
+    return PASSPORT_ORIGIN + '/login?return_url=' + encodeURIComponent(returnUrl);
+  }
 
   function loginPopup(nextPath) {
+    if (isMobileLike()) {
+      window.location.href = passportLoginUrl(nextPath);
+      return Promise.resolve({ ok: true, redirected: true });
+    }
+
     const next = nextPath || window.location.pathname + window.location.search;
     const done = '/pwa/login-done?return=' + encodeURIComponent(next);
     const url = '/login?popup=1&next=' + encodeURIComponent(done);
@@ -16,8 +35,8 @@
     const features = 'popup=yes,width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
     const popup = window.open(url, POPUP_NAME, features);
     if (!popup) {
-      window.location.href = '/login?next=' + encodeURIComponent(next);
-      return Promise.reject(new Error('popup blocked'));
+      window.location.href = passportLoginUrl(nextPath);
+      return Promise.resolve({ ok: true, redirected: true });
     }
     return new Promise((resolve, reject) => {
       function onMessage(event) {
@@ -60,5 +79,5 @@
     bindLoginButtons();
   }
 
-  window.PotatoblockPassportLogin = { loginPopup, MESSAGE_TYPE };
+  window.PotatoblockPassportLogin = { loginPopup, MESSAGE_TYPE, passportLoginUrl };
 })();

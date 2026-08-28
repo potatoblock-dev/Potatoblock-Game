@@ -31,7 +31,7 @@ class PoseMessage(TypedDict):
     gait: Literal["walk", "run"]
     headLook: float
     heldId: Optional[str]
-    # 可选：aimX/aimY/turretId/pressure/hp（运行时可能缺失）
+    # 可选：aimX/aimY/turretId/pressure/hp/radarOpen/radarLockAim（运行时可能缺失）
 
 
 class JoinMessage(TypedDict):

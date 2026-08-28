@@ -1,6 +1,7 @@
 /**
  * 车厢可交互节点规格（与贴图对齐，同一车厢可挂多个）。
- * 动力车：燃烧室 / 引擎控制台；卫兵防御车：炮塔 / 弹药箱 / 回收箱；绘轨：雷达；枢机：自动化。
+ * 动力车：燃烧室 / 引擎控制台；卫兵防御车：炮塔 / 弹药箱 / 回收箱；
+ * 塔莎火箭弹：火控（左）/ 弹药箱（右）；绘轨：雷达；枢机：自动化。
  * centerX / promptAnchorY 为贴图像素，构建时经 Spec.scaleArt 进世界。
  */
 (() => {
@@ -71,6 +72,28 @@
       actionLabel: '存取弹壳',
     },
     {
+      id: 'tasha-fire-control',
+      carId: 'tasha',
+      label: '火控台',
+      /** 左侧控制台 / 绿屏质心附近（预览采样）。 */
+      centerX: 620,
+      promptAnchorY: 860,
+      interactRadiusX: 130,
+      action: 'openTashaFireControl',
+      actionLabel: '打开火控台',
+    },
+    {
+      id: 'tasha-ammo',
+      carId: 'tasha',
+      label: '火箭弹药箱',
+      /** 右侧橄榄绿弹药堆。 */
+      centerX: 1560,
+      promptAnchorY: 860,
+      interactRadiusX: 120,
+      action: 'tashaAmmo',
+      actionLabel: '存取火箭弹',
+    },
+    {
       id: 'huigui-radar',
       carId: 'huigui',
       label: '绘轨示波器',
@@ -94,11 +117,11 @@
     },
   ];
 
-  /** 返回带世界坐标的交互点列表。 */
+  /** 返回带世界坐标的交互点列表（跳过当前编组中不存在的车厢）。 */
   function buildInteractables() {
     const scale = Spec.scaleArt || ((v) => v);
     const carById = Object.fromEntries(Spec.CARRIAGES.map((car) => [car.id, car]));
-    return INTERACT_SPOTS.map((spot) => {
+    return INTERACT_SPOTS.filter((spot) => carById[spot.carId]).map((spot) => {
       const car = carById[spot.carId];
       return {
         ...spot,

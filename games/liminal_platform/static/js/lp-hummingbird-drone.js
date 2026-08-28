@@ -292,14 +292,39 @@
   }
 
   /**
+   * 弹道起点：优先炮口，否则机身。
+   * @param {object|null|undefined} item
+   */
+  function shotOrigin(item) {
+    if (item && drone) return getMuzzleWorld(item);
+    if (drone) return { x: drone.x, y: drone.y + (drone.bobY || 0) };
+    return null;
+  }
+
+  /**
+   * 从起点到目标点弹道是否清通（地牢墙 / 车底；无检测接口则视为通）。
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   */
+  function hasClearShot(x0, y0, x1, y1) {
+    const clears = window.LpCombat?.projectileClearsToPoint;
+    if (typeof clears !== 'function') return true;
+    return clears(x0, y0, x1, y1);
+  }
+
+  /**
    * 在交战半径内按锚点选最近敌人。
    * 车厢场景：同节或相邻节舱内；月台/地牢无车厢时仅按射程（不套舱内规则）。
+   * 地牢还须枪口到目标无墙遮挡，避免隔墙选敌开火。
    * @param {number} anchorX 选敌距离优先锚点 X
    * @param {number} anchorY 选敌距离优先锚点 Y
    * @param {number} playerX 无人机无车厢时交战参照回退用
+   * @param {object|null|undefined} [item] 用于炮口视线
    * @returns {object|null}
    */
-  function pickTarget(anchorX, anchorY, playerX) {
+  function pickTarget(anchorX, anchorY, playerX, item) {
     const hostiles = window.LpCombat?.listHostiles?.() || [];
     const rangeX = engageRangeX();
     const originX =
@@ -309,6 +334,7 @@
     const onPlatform = window.LpPlatform?.getScene?.() === 'platform';
     const refCarId = onPlatform ? null : engageRefCarId(playerX);
     if (!onPlatform && !refCarId) return null;
+    const origin = shotOrigin(item);
     let best = null;
     let bestD2 = Infinity;
     for (const h of hostiles) {
@@ -318,6 +344,13 @@
       if (!onPlatform && !isDroneCabinEngageTarget(h, refCarId)) continue;
       const hy =
         h.y != null && Number.isFinite(Number(h.y)) ? Number(h.y) : anchorY;
+      if (
+        onPlatform &&
+        origin &&
+        !hasClearShot(origin.x, origin.y, hx, hy)
+      ) {
+        continue;
+      }
       const d2 = (hx - anchorX) ** 2 + (hy - anchorY) ** 2;
       if (d2 < bestD2) {
         bestD2 = d2;
@@ -665,20 +698,27 @@
 
   /**
    * 发射单发小口径弹（走 LpCombat.spawnProjectile，不占玩家开火冷却）。
+   * 开火前校验弹道清通；提前点被墙挡住则改打当前坐标，仍不通则不开火、不扣弹。
    * @param {object} held
    * @param {object} target
    */
   function fireOne(held, target) {
     const { item } = held;
-    if (!consumeMagRound(held)) return false;
     const muzzle = getMuzzleWorld(item);
     let aimX = target.x;
     let aimY = target.y;
     const lead = window.LpCombat?.predictLeadAim?.(muzzle.x, muzzle.y, target);
-    if (lead && Number.isFinite(lead.x)) {
+    if (
+      lead &&
+      Number.isFinite(lead.x) &&
+      hasClearShot(muzzle.x, muzzle.y, lead.x, lead.y)
+    ) {
       aimX = lead.x;
       aimY = lead.y;
+    } else if (!hasClearShot(muzzle.x, muzzle.y, target.x, target.y)) {
+      return false;
     }
+    if (!consumeMagRound(held)) return false;
     const dirX = aimX - muzzle.x;
     const dirY = aimY - muzzle.y;
     const facing = dirX >= 0 ? 1 : -1;
@@ -1107,7 +1147,7 @@
       const busy = isPlayerEquipmentBusy();
       const anchorX = busy ? drone.x : selected ? ctx.aimX : ctx.playerX;
       const anchorY = busy ? drone.y : selected ? ctx.aimY : ctx.playerY - 40;
-      const target = pickTarget(anchorX, anchorY, ctx.playerX);
+      const target = pickTarget(anchorX, anchorY, ctx.playerX, held.item);
       updateCombat(dt, held, target);
     }
   }

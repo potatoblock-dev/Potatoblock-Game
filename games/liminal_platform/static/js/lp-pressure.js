@@ -3,6 +3,7 @@
  *
  * 上限：默认 200；同车厢有队友时有效上限 160（硬钳制，增益与每帧均 clamp）。
  * 来源：同车小怪（p&lt;20 时 +5，冷却 2.5s）、受击 +5、同车开火（p&lt;20 时 +10 后中速回落到 20）、
+ * 塔莎火箭弹同车发射（每发 +30，快速回落到 20）、
  * 地牢同房未标记小怪（气球 +3 / 保龄球 +7，每只本地只计一次）、
  * 附近友军最终死亡 +100、附近友军重新部署 +20（半径见 LpPlayerDeath.allyDeathRadius；进入濒死 / 医箱复活不加）。
  * 衰减：无有效动作一段时间后缓慢下降；开火余晖优先于闲置衰减。
@@ -23,6 +24,8 @@
   const MOB_PRESENCE_DELTA = 5;
   const MOB_HIT_DELTA = 5;
   const FIRE_DELTA = 10;
+  /** 塔莎火箭弹同车发射加压（每发）。 */
+  const TASHA_ROCKET_FIRE_DELTA = 30;
   /** 附近友军计时耗尽最终死亡一次加压。 */
   const ALLY_DEATH_DELTA = 100;
   /** 附近友军从濒死重新部署一次加压。 */
@@ -174,6 +177,32 @@
     if (pressure < TRIGGER_BELOW) {
       setPressure(pressure + FIRE_DELTA, lx);
     }
+    if (pressure > AFTERGLOW_FLOOR) fireAfterglow = true;
+  }
+
+  /**
+   * 塔莎火箭弹发射：同车厢监听者每发 +30，并快速余晖回落到 20。
+   * @param {number|null|undefined} originX 炮口 / 车厢世界 X
+   * @param {number} [listenerX]
+   */
+  function noteTashaRocketFire(originX, listenerX) {
+    const Sfx = window.LpSfx;
+    const Spec = window.LiminalCarriageSpec;
+    const lx =
+      listenerX != null && Number.isFinite(listenerX)
+        ? listenerX
+        : window.LpGame?.getLocalX?.();
+    if (lx == null || originX == null || !Number.isFinite(originX)) return;
+    let same = false;
+    if (Sfx?.sameCarriage) same = Sfx.sameCarriage(originX, lx);
+    else if (Spec?.carriageAt) {
+      const a = Spec.carriageAt(originX);
+      const b = Spec.carriageAt(lx);
+      same = !!(a && b && a.id === b.id);
+    }
+    if (!same) return;
+    noteAction();
+    setPressure(pressure + TASHA_ROCKET_FIRE_DELTA, lx);
     if (pressure > AFTERGLOW_FLOOR) fireAfterglow = true;
   }
 
@@ -411,6 +440,7 @@
     IDLE_DELAY,
     IDLE_DECAY_PER_SEC,
     AFTERGLOW_DECAY_PER_SEC,
+    TASHA_ROCKET_FIRE_DELTA,
     getPressure: () => pressure,
     getEffectiveMax,
     /** 加成小数：−0.10…+0.05。 */
@@ -429,6 +459,7 @@
     noteAllyDeathNearby,
     noteAllyRedeployNearby,
     noteWeaponFireInCarriage,
+    noteTashaRocketFire,
     clearRoomPressureMarks,
     roomPressureDeltaForMob,
     setPressure,

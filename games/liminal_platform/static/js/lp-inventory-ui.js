@@ -1296,6 +1296,36 @@
     }
   }
 
+  /**
+   * 异类交换后：尽量把被替换堆叠放回来源格，否则找背包空位；仍失败则留在光标。
+   * @param {object} displaced 被挤出的堆叠
+   * @param {{ bag: string, index: number, pileId?: string } | null} fromRef
+   * @returns {object | null} 仍需拿在光标上的堆叠
+   */
+  function settleDisplacedStack(displaced, fromRef) {
+    if (!displaced) return null;
+    const rot = Core.stackRot(displaced);
+    const srcInv =
+      fromRef?.bag === 'ground'
+        ? state.groundInv
+        : fromRef
+          ? inventoryById(fromRef.bag)
+          : null;
+    if (srcInv && fromRef && Number.isFinite(Number(fromRef.index))) {
+      const idx = srcInv.originIndex(Number(fromRef.index));
+      if (
+        srcInv.acceptsItem?.(displaced.itemId, idx) !== false &&
+        srcInv.canPlaceAt(idx, displaced.itemId, -1, rot) &&
+        srcInv.placeStack(idx, displaced)
+      ) {
+        return null;
+      }
+    }
+    const dest = player.findPlaceIndex(displaced.itemId, rot);
+    if (dest >= 0 && player.placeStack(dest, displaced)) return null;
+    return displaced;
+  }
+
   /** 左键点击槽位：拾起 / 放置 / 合并；触屏单击优先查看信息，快速再点旋转。 */
   function handleSlotClick(event, inventory, index) {
     if (state.suppressClick || state.dragMoved) {
@@ -1401,20 +1431,32 @@
     }
     const holdRot = Core.stackRot(state.cursor);
     const movingQty = Math.max(1, Number(state.cursor.qty) || 1);
+    const incomingId = String(state.cursor.itemId || '');
     const returned = Core.placeOnSlot(inventory, placeIndex, state.cursor);
-    state.cursor = returned;
+    /** 异类交换：被替换物；同类合并/放不下：仍是 incoming 剩余。 */
+    const swappedOut =
+      returned && String(returned.itemId || '') !== incomingId ? returned : null;
+    const leftoverSame =
+      returned && String(returned.itemId || '') === incomingId ? returned : null;
+    state.cursor = swappedOut
+      ? settleDisplacedStack(swappedOut, from)
+      : leftoverSame;
     persistAndRender();
     if (from && to) {
-      const placedQty = returned ? movingQty - Math.max(0, Number(returned.qty) || 0) : movingQty;
+      const placedQty = swappedOut
+        ? movingQty
+        : leftoverSame
+          ? movingQty - Math.max(0, Number(leftoverSame.qty) || 0)
+          : movingQty;
       if (placedQty > 0) {
         const payload = { action: 'transfer', from, to, qty: placedQty };
         payload.rot = holdRot === 90 ? 90 : 0;
         netSend(payload);
       }
-      cursorSource = returned ? { ...from } : null;
+      cursorSource = state.cursor ? { ...from } : null;
     }
-    if (returned) {
-      showDetail(returned, {
+    if (state.cursor) {
+      showDetail(state.cursor, {
         pinned: isCoarse(),
         clientX: event.clientX,
         clientY: event.clientY,
@@ -1645,39 +1687,41 @@
     }
   }
 
-  /** 关闭时把手上物品退回背包，塞不下则掉地上。 */
+  /** 关闭时把手上物品退回原格或背包，塞不下则掉地上。 */
   function returnCursorToPlayer() {
     if (!state.cursor) return;
     const stack = state.cursor;
     state.cursor = null;
-    if (cursorSource && window.LpInventoryNet?.isActive?.()) {
-      const inv =
-        cursorSource.bag === 'ground'
-          ? state.groundInv
-          : inventoryById(cursorSource.bag);
-      if (inv?.placeStack?.(cursorSource.index, stack)) {
-        cursorSource = null;
-        return;
-      }
-    }
+    const from = cursorSource;
     cursorSource = null;
-    const leftoverQty = player.addItem(stack.itemId, stack.qty);
-    if (leftoverQty < stack.qty && (stack.mag != null || stack.dur != null || Core.stackRot(stack) === 90)) {
+    const settled = settleDisplacedStack(stack, from);
+    if (!settled) return;
+    const leftoverQty = player.addItem(settled.itemId, settled.qty);
+    if (
+      leftoverQty < settled.qty &&
+      (settled.mag != null || settled.dur != null || Core.stackRot(settled) === 90)
+    ) {
       for (let i = 0; i < player.size(); i += 1) {
         const raw = player.slots[i];
-        if (raw && raw.itemId === stack.itemId && raw.mag == null && raw.dur == null && raw.rot == null) {
-          if (stack.mag != null) raw.mag = stack.mag;
-          if (stack.dur != null) raw.dur = stack.dur;
-          if (Core.stackRot(stack) === 90) raw.rot = 90;
+        if (
+          raw &&
+          raw.itemId === settled.itemId &&
+          raw.mag == null &&
+          raw.dur == null &&
+          raw.rot == null
+        ) {
+          if (settled.mag != null) raw.mag = settled.mag;
+          if (settled.dur != null) raw.dur = settled.dur;
+          if (Core.stackRot(settled) === 90) raw.rot = 90;
           break;
         }
       }
     }
     if (leftoverQty > 0) {
-      const drop = { itemId: stack.itemId, qty: leftoverQty };
-      if (stack.mag != null) drop.mag = stack.mag;
-      if (stack.dur != null) drop.dur = stack.dur;
-      if (Core.stackRot(stack) === 90) drop.rot = 90;
+      const drop = { itemId: settled.itemId, qty: leftoverQty };
+      if (settled.mag != null) drop.mag = settled.mag;
+      if (settled.dur != null) drop.dur = settled.dur;
+      if (Core.stackRot(settled) === 90) drop.rot = 90;
       window.LpGroundLoot?.dropStacks?.(state.openWorldX, [drop]);
     }
   }

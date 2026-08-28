@@ -4,7 +4,7 @@
  * 目标（车厢 / 接触 / 小型集群标）仅在扫描线穿过方位时涂磷光，随后缓慢衰减。
  * 小型集群：绿方块 + 下划线=保龄球(地面) / 上划线=气球(空中)；附速度矢量线（簇均速 × VECTOR_LEAD_S）。
  * 方位约定：画面 12 点 / 0° = 列车前进（航向朝上）；角度顺时针递增。
- * 本列编组沿前进轴画俯视矩形；世界接触按站心极坐标（距离 × 方位）落图。
+ * 本列编组沿本线脊线落轨；仅最小量程逐节，更大档位单「编组」图标。
  */
 (() => {
   const root = document.getElementById('lpRadarScopeRoot');
@@ -91,8 +91,8 @@
    * 单节车厢屏幕上限（CSS 像素）；近距量程下按比例整体缩小，避免盖过集群/月台标。
    * 不改世界尺寸，仅限制 PPI 观感。
    */
-  const OWN_CAR_MAX_LENGTH_PX = 44;
-  const OWN_CAR_MAX_BEAM_PX = 7;
+  const OWN_CAR_MAX_LENGTH_PX = 140;
+  const OWN_CAR_MAX_BEAM_PX = 20;
   /** 绘轨本车相对其它节的屏幕放大（观感强调，非世界尺寸）。 */
   const OWN_SCOPE_LENGTH_BOOST = 1.04;
   const OWN_SCOPE_BEAM_BOOST = 1.06;
@@ -107,18 +107,18 @@
   const PLATFORM_SCALE_BOOST = 80;
   /**
    * 轨距半宽（CSS 像素）夹制；世界参考半宽 × scale 后再夹。
-   * 双轨须在 1200–12000 量程都读得清（远距靠 MIN，近距靠 MAX）。
+   * MIN 放宽：远距可变细，避免「缩放无效」的粗绳感；近距靠 MAX。
    */
-  const TRACK_WORLD_HALF = 28;
-  const TRACK_HALF_MIN_PX = 6;
-  const TRACK_HALF_MAX_PX = 10;
+  const TRACK_WORLD_HALF = 36;
+  const TRACK_HALF_MIN_PX = 2.2;
+  const TRACK_HALF_MAX_PX = 22;
   /** 单侧铁轨描边（像素）。 */
-  const TRACK_RAIL_STROKE_PX = 2.1;
-  /** 轨枕：世界间距 × scale 后夹到屏幕像素，保证远近量程可读。 */
+  const TRACK_RAIL_STROKE_PX = 1.7;
+  /** 轨枕：世界间距 × scale；近距随缩放拉开，远距保可读。 */
   const TRACK_SLEEPER_WORLD = 110;
-  const TRACK_SLEEPER_SPACING_MIN_PX = 11;
-  const TRACK_SLEEPER_SPACING_MAX_PX = 18;
-  const TRACK_SLEEPER_STROKE_PX = 1.6;
+  const TRACK_SLEEPER_SPACING_MIN_PX = 4.5;
+  const TRACK_SLEEPER_SPACING_MAX_PX = 36;
+  const TRACK_SLEEPER_STROKE_PX = 1.25;
   /** 搜索雷达角速度（rad/s）；满圈约 2π/1.35 ≈ 4.65s。 */
   const SEARCH_SWEEP_RAD_PER_S = 1.35;
   /** 搜索雷达满圈周期（ms）；由角速度推导，扫速变更时自动同步。 */
@@ -266,9 +266,74 @@
   }
 
   /**
-   * 当前量程下单节车厢屏幕尺寸是否仍可读；不可读则应改画整列一条矩形。
-   * @param {number} scale
-   * @param {{ length: number, beam: number }} sample
+   * 是否逐节绘制本列（仅最小量程 1200）；更大档位整列同一图标。
+   */
+  function showIndividualOwnCars() {
+    return rangeWorld <= RANGE_WORLD_MIN;
+  }
+
+  /** 本线轨道脊线（世界坐标折线）。 */
+  function getOwnTrackSpine() {
+    const routes = window.LpPlatform?.getRadarTrackRoutes?.() || [];
+    const own = routes.find((r) => r.kind === 'own' || r.lane === 0);
+    if (own?.points?.length >= 2) return own.points;
+    const poly = window.LpPlatform?.getRadarTrackPolyline?.() || [];
+    return poly.length >= 2 ? poly : [];
+  }
+
+  /**
+   * 按世界 X 在本线脊线上插值采样（车厢落轨用）。
+   * @param {Array<{ x: number, y: number }>} spine
+   * @param {number} worldX
+   */
+  function sampleSpineAtWorldX(spine, worldX) {
+    if (!spine?.length) return null;
+    if (spine.length === 1) return { x: spine[0].x, y: spine[0].y };
+    const x = Number(worldX);
+    if (!Number.isFinite(x)) return null;
+    if (x <= spine[0].x) return { x: spine[0].x, y: spine[0].y };
+    const last = spine[spine.length - 1];
+    if (x >= last.x) return { x: last.x, y: last.y };
+    for (let i = 0; i < spine.length - 1; i += 1) {
+      const a = spine[i];
+      const b = spine[i + 1];
+      if (x < a.x || x > b.x) continue;
+      const t = (x - a.x) / (b.x - a.x || 1);
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    return null;
+  }
+
+  /**
+   * 轨面世界点 → PPI 屏幕坐标。
+   * @param {number} wx
+   * @param {number} wy
+   */
+  function worldOnTrackToScreen(wx, wy, cx, cy, scale, forwardSign) {
+    const sc = worldToScope(wx, wy);
+    return scopeToPpi(sc.x, sc.y, cx, cy, scale, forwardSign);
+  }
+
+  /**
+   * 轨向切线角（canvas 弧度）；车体矩形长边沿轨。
+   * @param {Array<{ x: number, y: number }>} spine
+   * @param {number} worldX
+   */
+  function trackTangentRotationRad(spine, worldX, cx, cy, scale, forwardSign) {
+    const eps = Math.max(40, 80 / Math.max(scale, 1e-6));
+    const a = sampleSpineAtWorldX(spine, worldX - eps);
+    const b = sampleSpineAtWorldX(spine, worldX + eps);
+    if (!a || !b) return 0;
+    const sa = worldOnTrackToScreen(a.x, a.y, cx, cy, scale, forwardSign);
+    const sb = worldOnTrackToScreen(b.x, b.y, cx, cy, scale, forwardSign);
+    const tdx = sb.x - sa.x;
+    const tdy = sb.y - sa.y;
+    if (Math.hypot(tdx, tdy) < 0.5) return 0;
+    return Math.atan2(tdy, tdx) - Math.PI / 2;
+  }
+
+  /**
+   * @deprecated 改用 showIndividualOwnCars；保留供测试对照。
    */
   function ownCarsReadableOnScreen(scale, sample) {
     const lengthPx = sample.length * scale;
@@ -411,54 +476,157 @@
   }
 
   /**
-   * 在 PPI 圆内绘制双轨 + 轨枕（磷光绿）；不盖过后续接触标。
+   * 在 PPI 圆内绘制双轨 + 轨枕（磷光绿）；裁切内缩半轨宽，避免粗描边渗出。
    * @param {Array<{ x: number, y: number }>} screen
    * @param {number} cx
    * @param {number} cy
    * @param {number} radius
    * @param {number} trackHalf
    * @param {number} scale
+   * @param {{ kind?: 'own'|'siding', label?: string }} [style]
    */
-  function paintTrackOnScreen(screen, cx, cy, radius, trackHalf, scale) {
+  function paintTrackOnScreen(screen, cx, cy, radius, trackHalf, scale, style = {}) {
     if (screen.length < 2) return;
+    const kind = style.kind === 'siding' ? 'siding' : 'own';
+    const isOwn = kind === 'own';
+    /* 裁到 PPI 内缘再内缩半轨宽，避免粗描边/圆角端点渗出绿圈。 */
+    const clipR = Math.max(8, radius - Math.max(trackHalf, 3) - 1);
     ctx.save();
     ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.arc(cx, cy, clipR, 0, Math.PI * 2);
     ctx.clip();
 
-    /* 道碴底带：极淡，只衬轨距，不糊成单条亮带 */
-    ctx.strokeStyle = 'rgba(40, 130, 65, 0.1)';
-    ctx.lineWidth = trackHalf * 2 + 1.5;
+    /* 道碴底带：本线更亮，侧线更淡虚线，方便读多轨地图 */
+    ctx.strokeStyle = isOwn ? 'rgba(55, 160, 80, 0.22)' : 'rgba(40, 110, 60, 0.12)';
+    ctx.lineWidth = trackHalf * 2 + (isOwn ? 2.2 : 1.2);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    if (!isOwn) ctx.setLineDash([7, 6]);
     strokePolyline(screen);
+    ctx.setLineDash([]);
 
-    paintTrackSleepers(screen, trackHalf, scale);
+    if (isOwn) {
+      paintTrackSleepers(screen, trackHalf, scale);
+    }
 
     const rails = offsetRailPolylines(screen, trackHalf);
-    ctx.strokeStyle = 'rgba(125, 255, 155, 0.9)';
-    ctx.lineWidth = TRACK_RAIL_STROKE_PX;
+    ctx.strokeStyle = isOwn
+      ? 'rgba(145, 255, 170, 0.95)'
+      : 'rgba(90, 200, 120, 0.45)';
+    ctx.lineWidth = isOwn ? TRACK_RAIL_STROKE_PX + 0.35 : TRACK_RAIL_STROKE_PX * 0.75;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    if (!isOwn) ctx.setLineDash([5, 5]);
     strokePolyline(rails.left);
     strokePolyline(rails.right);
-    ctx.restore();
+    ctx.setLineDash([]);
 
     let labelPt = null;
     let bestY = Infinity;
     for (const p of screen) {
-      if (Math.hypot(p.x - cx, p.y - cy) > radius) continue;
+      if (Math.hypot(p.x - cx, p.y - cy) > clipR * 0.92) continue;
       if (p.y < bestY) {
         bestY = p.y;
         labelPt = p;
       }
     }
-    if (!labelPt) return;
-    ctx.fillStyle = 'rgba(120, 255, 160, 0.55)';
-    ctx.font = `${SCOPE_LEGEND_FONT_PX}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('TRACK', labelPt.x + trackHalf + 5, Math.max(cy - radius + 10, labelPt.y));
+    if (labelPt) {
+      const text = style.label || (isOwn ? 'TRACK' : 'SIDING');
+      ctx.fillStyle = isOwn
+        ? 'rgba(150, 255, 180, 0.72)'
+        : 'rgba(100, 200, 130, 0.42)';
+      ctx.font = `${SCOPE_LEGEND_FONT_PX}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, labelPt.x + trackHalf + 5, Math.max(cy - clipR + 10, labelPt.y));
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 世界折线 → PPI 屏幕点。
+   * @param {Array<{ x: number, y: number }>} points
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} scale
+   * @param {number} forwardSign
+   * @returns {Array<{ x: number, y: number }>}
+   */
+  function worldTrackToScreen(points, cx, cy, scale, forwardSign) {
+    const screen = [];
+    for (const p of points) {
+      const sc = worldToScope(p.x, p.y);
+      screen.push(scopeToPpi(sc.x, sc.y, cx, cy, scale, forwardSign));
+    }
+    return screen;
+  }
+
+  /**
+   * 绘制可拐弯铁轨折线（世界点 → PPI）：双轨 + 轨枕，圆内裁剪。
+   * @param {Array<{ x: number, y: number }>} points
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} radius
+   * @param {number} scale
+   * @param {number} forwardSign
+   * @param {number} trackHalf
+   * @param {{ kind?: 'own'|'siding', label?: string }} [style]
+   */
+  function paintTrackPolyline(points, cx, cy, radius, scale, forwardSign, trackHalf, style) {
+    const screen = worldTrackToScreen(points, cx, cy, scale, forwardSign);
+    paintTrackOnScreen(screen, cx, cy, radius, trackHalf, scale, style);
+  }
+
+  /**
+   * 绘制雷达轨道路线网：先侧线、再本线（本线覆盖最上），供后续敌对列车挂 lane。
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} radius
+   * @param {number} scale
+   * @param {number} forwardSign
+   * @param {number} trackHalf
+   */
+  function paintTrackRouteNetwork(cx, cy, radius, scale, forwardSign, trackHalf) {
+    const routes =
+      window.LpPlatform?.getRadarTrackRoutes?.() ||
+      (() => {
+        const poly = window.LpPlatform?.getRadarTrackPolyline?.() || [];
+        return poly.length >= 2
+          ? [{ id: 'track-own', kind: 'own', lane: 0, label: '本线', points: poly }]
+          : [];
+      })();
+    if (!routes.length) {
+      paintStraightTrackAxis(cx, cy, radius, trackHalf, scale);
+      return;
+    }
+    const sidings = routes.filter((r) => r.kind === 'siding');
+    const owns = routes.filter((r) => r.kind !== 'siding');
+    for (const route of sidings) {
+      if (!route.points || route.points.length < 2) continue;
+      paintTrackPolyline(
+        route.points,
+        cx,
+        cy,
+        radius,
+        scale,
+        forwardSign,
+        trackHalf * 0.82,
+        { kind: 'siding', label: route.label || '侧线' },
+      );
+    }
+    for (const route of owns) {
+      if (!route.points || route.points.length < 2) continue;
+      paintTrackPolyline(
+        route.points,
+        cx,
+        cy,
+        radius,
+        scale,
+        forwardSign,
+        trackHalf,
+        { kind: 'own', label: route.label || '本线' },
+      );
+    }
   }
 
   /**
@@ -502,7 +670,7 @@
   }
 
   /**
-   * 车厢过小时：整列沿前进轴画成一条统一长矩形（中心取编组航向质心）。
+   * 非最小量程：整列沿本线脊线画成一条统一长矩形（单图标「编组」）。
    * @param {Array<{ x: number, y: number, length: number, beam: number, kind: string }>} cars
    * @param {number} cx
    * @param {number} cy
@@ -510,32 +678,53 @@
    * @param {number} forwardSign
    */
   function paintOwnTrainUnified(cars, cx, cy, scale, forwardSign) {
-    let uMin = Infinity;
-    let uMax = -Infinity;
-    let vSum = 0;
-    let n = 0;
+    const spine = getOwnTrackSpine();
+    let xMin = Infinity;
+    let xMax = -Infinity;
     let hasScope = false;
     let beamWorld = 0;
+    let n = 0;
     for (const car of cars) {
-      const p = worldToScope(car.x, car.y);
-      if (Math.hypot(p.x, p.y) > rangeWorld * 1.05) continue;
-      const h = scopeToHeading(p.x, p.y, forwardSign);
-      const half = car.length / 2;
-      uMin = Math.min(uMin, h.u - half);
-      uMax = Math.max(uMax, h.u + half);
-      vSum += h.v;
-      n += 1;
+      const trackPt = spine.length
+        ? sampleSpineAtWorldX(spine, car.x)
+        : { x: car.x, y: car.y };
+      if (!trackPt) continue;
+      const sc = worldToScope(trackPt.x, trackPt.y);
+      if (Math.hypot(sc.x, sc.y) > rangeWorld * 1.05) continue;
+      xMin = Math.min(xMin, car.x);
+      xMax = Math.max(xMax, car.x);
       beamWorld = Math.max(beamWorld, car.beam);
       if (car.kind === 'own-scope') hasScope = true;
+      n += 1;
     }
-    if (n < 1 || !(uMax > uMin)) return;
-    const uMid = (uMin + uMax) / 2;
-    const vMid = vSum / n;
-    const sized = clampCarScreenSize(uMax - uMin, beamWorld * 1.05, scale);
-    const { lengthPx, beamPx } = sized;
-    const scr = headingToScreen(uMid, vMid, cx, cy, scale);
+    if (n < 1 || !(xMax > xMin)) return;
+
+    const xMid = (xMin + xMax) / 2;
+    const ptMid = spine.length
+      ? sampleSpineAtWorldX(spine, xMid)
+      : { x: xMid, y: cars[0].y };
+    const ptLo = spine.length
+      ? sampleSpineAtWorldX(spine, xMin)
+      : { x: xMin, y: cars[0].y };
+    const ptHi = spine.length
+      ? sampleSpineAtWorldX(spine, xMax)
+      : { x: xMax, y: cars[0].y };
+    if (!ptMid || !ptLo || !ptHi) return;
+
+    const scrMid = worldOnTrackToScreen(ptMid.x, ptMid.y, cx, cy, scale, forwardSign);
+    const scrLo = worldOnTrackToScreen(ptLo.x, ptLo.y, cx, cy, scale, forwardSign);
+    const scrHi = worldOnTrackToScreen(ptHi.x, ptHi.y, cx, cy, scale, forwardSign);
+    const spanPx = Math.hypot(scrHi.x - scrLo.x, scrHi.y - scrLo.y);
+    const carLenPx = clampCarScreenSize(cars[0].length, beamWorld * 1.05, scale).lengthPx;
+    const lengthPx = Math.max(OWN_CAR_MIN_LENGTH_PX, spanPx + carLenPx * 0.55);
+    const beamPx = clampCarScreenSize(cars[0].length, beamWorld * 1.05, scale).beamPx;
+    const rot = spine.length
+      ? trackTangentRotationRad(spine, xMid, cx, cy, scale, forwardSign)
+      : 0;
+
     ctx.save();
-    ctx.translate(scr.x, scr.y);
+    ctx.translate(scrMid.x, scrMid.y);
+    ctx.rotate(rot);
     strokeTrainBodyRect(
       lengthPx,
       beamPx,
@@ -548,25 +737,6 @@
     ctx.textBaseline = 'middle';
     ctx.fillText('编组', beamPx / 2 + 3, 0);
     ctx.restore();
-  }
-
-  /**
-   * 绘制可拐弯铁轨折线（世界点 → PPI）：双轨 + 轨枕，圆内裁剪。
-   * @param {Array<{ x: number, y: number }>} points
-   * @param {number} cx
-   * @param {number} cy
-   * @param {number} radius
-   * @param {number} scale
-   * @param {number} forwardSign
-   * @param {number} trackHalf
-   */
-  function paintTrackPolyline(points, cx, cy, radius, scale, forwardSign, trackHalf) {
-    const screen = [];
-    for (const p of points) {
-      const sc = worldToScope(p.x, p.y);
-      screen.push(scopeToPpi(sc.x, sc.y, cx, cy, scale, forwardSign));
-    }
-    paintTrackOnScreen(screen, cx, cy, radius, trackHalf, scale);
   }
 
   /**
@@ -589,6 +759,7 @@
       radius,
       trackHalf,
       scale,
+      { kind: 'own', label: '本线' },
     );
   }
 
@@ -621,11 +792,15 @@
 
   /** 轨道在示波器上的参考 Y（本车高度附近的「轨面」带）。 */
   function trackY() {
+    const o = window.LpPlatform?.getRadarStationOrigin?.();
+    if (o && Number.isFinite(o.y)) return o.y;
     return window.LiminalCarriageSpec?.TRACK_Y ?? window.LiminalCarriageSpec?.FLOOR_Y ?? 0;
   }
 
-  /** 示波器原点：以绘轨车（或编组中心）为雷达站。 */
+  /** 示波器原点：与铁轨/月台标同一站心（绘轨车，否则编组中心）。 */
   function radarOriginX() {
+    const o = window.LpPlatform?.getRadarStationOrigin?.();
+    if (o && Number.isFinite(o.x)) return o.x;
     const Spec = window.LiminalCarriageSpec;
     const scope = Spec?.carriageById?.('huigui');
     if (scope) return scope.worldX + (Spec.WALK_LEFT + Spec.WALK_RIGHT) / 2;
@@ -641,6 +816,13 @@
     const ox = radarOriginX();
     const oy = trackY();
     return { x: wx - ox, y: wy - oy };
+  }
+
+  /** 示波器局部 → 世界（磷光标绘快照坐标；非实时实体位置）。 */
+  function scopeToWorld(sx, sy) {
+    const ox = radarOriginX();
+    const oy = trackY();
+    return { x: ox + sx, y: oy + sy };
   }
 
   /**
@@ -1114,17 +1296,23 @@
   }
 
   /**
-   * 示波器局部坐标是否落在锁定扇区角与锁定量程内（俯视航向方位）。
+   * 示波器局部坐标是否落在指定锁定扇区内。
    * @param {number} sx
    * @param {number} sy
    * @param {number} forwardSign
+   * @param {number} aimAngle 扇区角平分线（canvas 弧度）
    */
-  function inLockSector(sx, sy, forwardSign) {
+  function inLockSectorAt(sx, sy, forwardSign, aimAngle) {
     const dist = Math.hypot(sx, sy);
     if (dist > Math.min(LOCK_RANGE_WORLD_MAX, rangeWorld) * 1.02) return false;
     if (dist < 1e-3) return true;
     const bearing = scopeBearingCanvas(sx, sy, forwardSign);
-    return Math.abs(shortestAngleDelta(lockAimAngle, bearing)) <= LOCK_HALF_RAD;
+    return Math.abs(shortestAngleDelta(aimAngle, bearing)) <= LOCK_HALF_RAD;
+  }
+
+  /** 本地锁定扇区（当前 lockAimAngle）。 */
+  function inLockSector(sx, sy, forwardSign) {
+    return inLockSectorAt(sx, sy, forwardSign, lockAimAngle);
   }
 
   /**
@@ -1435,8 +1623,7 @@
   }
 
   /**
-   * 常显本列俯视编组：车厢矩形沿前进轴（12↔6）堆叠，标签在右舷侧。
-   * 单节屏幕尺寸低于 OWN_CAR_MIN_*_PX 时改画整列一条矩形。
+   * 常显本列俯视编组：沿本线脊线落位；仅最小量程逐节，其余档位单图标。
    * @param {number} cx
    * @param {number} cy
    * @param {number} scale
@@ -1445,14 +1632,19 @@
   function paintOwnTrainTopDown(cx, cy, scale, forwardSign) {
     const cars = ownTrainCenters();
     if (!cars.length) return;
-    if (!ownCarsReadableOnScreen(scale, cars[0])) {
+    if (!showIndividualOwnCars()) {
       paintOwnTrainUnified(cars, cx, cy, scale, forwardSign);
       return;
     }
+    const spine = getOwnTrackSpine();
     for (const car of cars) {
-      const p = worldToScope(car.x, car.y);
-      if (Math.hypot(p.x, p.y) > rangeWorld * 1.05) continue;
-      const scr = scopeToPpi(p.x, p.y, cx, cy, scale, forwardSign);
+      const trackPt = spine.length
+        ? sampleSpineAtWorldX(spine, car.x)
+        : { x: car.x, y: car.y };
+      if (!trackPt) continue;
+      const sc = worldToScope(trackPt.x, trackPt.y);
+      if (Math.hypot(sc.x, sc.y) > rangeWorld * 1.05) continue;
+      const scr = scopeToPpi(sc.x, sc.y, cx, cy, scale, forwardSign);
       let lengthWorld = car.length;
       let beamWorld = car.beam;
       if (car.kind === 'own-scope') {
@@ -1462,8 +1654,12 @@
       const sized = clampCarScreenSize(lengthWorld, beamWorld, scale);
       const length = sized.lengthPx;
       const beam = sized.beamPx;
+      const rot = spine.length
+        ? trackTangentRotationRad(spine, car.x, cx, cy, scale, forwardSign)
+        : 0;
       ctx.save();
       ctx.translate(scr.x, scr.y);
+      ctx.rotate(rot);
       strokeTrainBodyRect(
         length,
         beam,
@@ -1575,14 +1771,20 @@
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.clip();
 
-    /* 量程环 */
+    /* 量程环 + 径向距离标注（随当前量程变化，便于核对缩放） */
     ctx.strokeStyle = 'rgba(80, 255, 120, 0.22)';
     ctx.lineWidth = 0.9;
+    ctx.fillStyle = 'rgba(140, 230, 170, 0.55)';
+    ctx.font = `${SCOPE_LABEL_FONT_PX}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
     for (let i = 1; i <= 4; i += 1) {
       const r = (radius * i) / 4;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.stroke();
+      const distLabel = String(Math.round((rangeWorld * i) / 4));
+      ctx.fillText(distLabel, cx + r * 0.72, cy - 8);
     }
 
     /* 方位十字 */
@@ -1594,14 +1796,9 @@
     ctx.strokeStyle = 'rgba(80, 255, 120, 0.18)';
     ctx.stroke();
 
-    /* 铁轨：优先可拐弯折线双轨；无折线时沿前进轴直线双轨 */
-    const trackPoly = window.LpPlatform?.getRadarTrackPolyline?.() || [];
+    /* 铁轨线路网：侧线占位 + 本线双轨（后续敌对列车按 lane 挂载） */
     const trackHalf = trackHalfPx(scale);
-    if (trackPoly.length >= 2) {
-      paintTrackPolyline(trackPoly, cx, cy, radius, scale, forwardSign, trackHalf);
-    } else {
-      paintStraightTrackAxis(cx, cy, radius, trackHalf, scale);
-    }
+    paintTrackRouteNetwork(cx, cy, radius, scale, forwardSign, trackHalf);
 
     /* 搜索雷达扫描线（满圈 ~4.65s） */
     sweepAngle = ((now / 1000) * SEARCH_SWEEP_RAD_PER_S) % (Math.PI * 2);
@@ -1669,7 +1866,7 @@
       rangeReadout.textContent = `量程 ${Math.round(rangeWorld)}`;
     }
     if (modeReadout) {
-      modeReadout.textContent = `接触 ${ownTrainCenters().length + externalContacts.length} · PPI`;
+      modeReadout.textContent = `接触 ${externalContacts.length} · PPI`;
     }
     syncSectorRpmReadout();
   }
@@ -1843,6 +2040,152 @@
     }
   }
 
+  /**
+   * 射程内可跟踪目标（外部接触 + 单只小怪），含示波器与世界坐标。
+   * @param {number} forwardSign
+   * @returns {Array<{ id: string, kind: string, x: number, y: number, sx: number, sy: number, label: string }>}
+   */
+  function collectTrackableContacts(forwardSign) {
+    /** @type {Array<{ id: string, kind: string, x: number, y: number, sx: number, sy: number, label: string }>} */
+    const out = [];
+    for (const c of externalContacts) {
+      if (!Number.isFinite(c?.x) || !Number.isFinite(c?.y)) continue;
+      const p = worldToScope(c.x, c.y);
+      if (Math.hypot(p.x, p.y) > rangeWorld * 1.05) continue;
+      out.push({
+        id: String(c.id || `contact:${c.x},${c.y}`),
+        kind: c.kind || 'contact',
+        x: c.x,
+        y: c.y,
+        sx: p.x,
+        sy: p.y,
+        label: c.label || c.kind || '接触',
+      });
+    }
+    for (const h of readMobHostiles()) {
+      if (!Number.isFinite(h?.x) || !Number.isFinite(h?.y)) continue;
+      const p = worldToScope(h.x, h.y);
+      if (Math.hypot(p.x, p.y) > rangeWorld * 1.05) continue;
+      out.push({
+        id: String(h.id || `mob:${h.x},${h.y}`),
+        kind: h.kind || 'mob',
+        x: h.x,
+        y: h.y,
+        sx: p.x,
+        sy: p.y,
+        label: h.label || h.species || h.kind || '目标',
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 当前被持续照射的目标 id（本地或任一远端绘轨雷达锁定扇区）。
+   * @returns {Set<string>}
+   */
+  function getIlluminatedContactIds() {
+    const forwardSign = resolveForwardSign();
+    /** @type {Set<string>} */
+    const ids = new Set();
+    const targets = collectTrackableContacts(forwardSign);
+    if (open) {
+      for (const t of targets) {
+        if (inLockSectorAt(t.sx, t.sy, forwardSign, lockAimAngle)) ids.add(t.id);
+      }
+    }
+    const remotes = window.LiminalSession?.remotes?.();
+    if (remotes && typeof remotes.values === 'function') {
+      for (const remote of remotes.values()) {
+        if (!remote || remote._lpDisconnected) continue;
+        if (!remote._lpRadarOpen) continue;
+        const aim = Number(remote._lpRadarLockAim);
+        if (!Number.isFinite(aim)) continue;
+        for (const t of targets) {
+          if (inLockSectorAt(t.sx, t.sy, forwardSign, aim)) ids.add(t.id);
+        }
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * 落在锁定扇区内的接触（持续照射；含远端雷达操作员）。
+   * @returns {Array<{ id: string, kind: string, x: number, y: number, label?: string }>}
+   */
+  function getIlluminatedContacts() {
+    const forwardSign = resolveForwardSign();
+    const ids = getIlluminatedContactIds();
+    if (!ids.size) return [];
+    return collectTrackableContacts(forwardSign)
+      .filter((t) => ids.has(t.id))
+      .map((t) => ({
+        id: t.id,
+        kind: t.kind,
+        x: t.x,
+        y: t.y,
+        label: t.label,
+      }));
+  }
+
+  /**
+   * 磷光标绘快照（搜索/扇扫曾涂覆的近期接触），示波器局部坐标。
+   * @returns {Array<object>}
+   */
+  function getPhosphorContacts() {
+    const now = performance.now();
+    const out = [];
+    for (const blip of phosphorBlips.values()) {
+      if (!blip) continue;
+      const age = now - (blip.paintedAt || 0);
+      if (age > BLIP_FADE_MS) continue;
+      const w = scopeToWorld(blip.sx, blip.sy);
+      out.push({ ...blip, ageMs: age, x: w.x, y: w.y });
+    }
+    return out;
+  }
+
+  /**
+   * 火控索敌：磷光为滞后快照（live=false），持续照射为实时坐标（live=true）。
+   * @returns {Array<{ id: string, kind: string, label: string, x: number, y: number, live: boolean, ageMs: number }>}
+   */
+  function getTargetingContacts() {
+    const forwardSign = resolveForwardSign();
+    const illuminatedIds = getIlluminatedContactIds();
+    /** @type {Map<string, { id: string, kind: string, label: string, x: number, y: number, live: boolean, ageMs: number }>} */
+    const byId = new Map();
+    const now = performance.now();
+    for (const blip of phosphorBlips.values()) {
+      if (!blip) continue;
+      const age = now - (blip.paintedAt || 0);
+      if (age > BLIP_FADE_MS) continue;
+      const id = String(blip.key || '');
+      if (!id) continue;
+      const w = scopeToWorld(blip.sx, blip.sy);
+      byId.set(id, {
+        id,
+        kind: blip.kind || 'contact',
+        label: blip.label || blip.kind || id,
+        x: w.x,
+        y: w.y,
+        live: false,
+        ageMs: age,
+      });
+    }
+    for (const t of collectTrackableContacts(forwardSign)) {
+      if (!illuminatedIds.has(t.id)) continue;
+      byId.set(t.id, {
+        id: t.id,
+        kind: t.kind,
+        label: t.label,
+        x: t.x,
+        y: t.y,
+        live: true,
+        ageMs: 0,
+      });
+    }
+    return [...byId.values()];
+  }
+
   window.LpRadarScope = {
     isOpen,
     open: openPanel,
@@ -1851,6 +2194,10 @@
     upsertContact,
     /** 外部接触点副本（供自动化传感器等读取）。 */
     getContacts: () => externalContacts.map((c) => ({ ...c })),
+    getIlluminatedContacts,
+    getPhosphorContacts,
+    getTargetingContacts,
+    getBlipFadeMs: () => BLIP_FADE_MS,
     getRange: () => rangeWorld,
     setRange: (v) => {
       setRangeWorld(Number(v) || rangeWorld);

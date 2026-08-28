@@ -1,23 +1,56 @@
 /**
  * 列车前景 / 中景视差层：随 LpTrack 卷动，制造速度感。
- * 中景在背景与轨道之间（~0.35–0.55× 轨速）；前景在玩法层之上、滤镜之前（~1.15–1.35×），
- * 偏屏幕边缘、高透明柔边流体形。仅列车场景启用；月台/地牢不画。
+ * 中景在背景与轨道之间（~0.35–0.55× 轨速）；前景在玩法层之上（~1.15–1.35×），
+ * 线性随 scrollX 向左退，与列车右行方向相反。
+ * 另绘可遮挡视野的地形遮挡物（默认林地树干）；进出月台柱列仍由 LpStationTransit 负责。
+ * 后续路线/地形：registerTerrain / setTerrain 换包即可加工业柱、峡谷壁等。
  */
 (() => {
   /** 与背景区分的子流盐。 */
   const LAYER_STREAM = 0xc3a11e;
+  /** 遮挡物子流盐。 */
+  const OCCLUDER_STREAM = 0x7ee011;
   /** FOV 外延（世界像素）。 */
   const FOV_MARGIN = 160;
   /** 水平平铺周期相对视口宽度倍数。 */
   const PERIOD_MUL = 2.15;
+  /** 遮挡物平铺周期倍数（略疏，避免糊成墙）。 */
+  const OCCLUDER_PERIOD_MUL = 2.8;
   /** 中景数量上下限。 */
   const MG_MIN = 5;
   const MG_MAX = 11;
-  /** 前景数量上下限（更少、更大）。 */
+  /** 前景柔形数量上下限（更少、更大）。 */
   const FG_MIN = 2;
   const FG_MAX = 5;
   const SHAPES = ['ellipse', 'blob', 'petal', 'squircle', 'diamond', 'ring'];
 
+  /**
+   * 地形包：决定路上遮挡物种类与配色。未来新路线在此追加或 registerTerrain。
+   * @type {Record<string, TerrainPack>}
+   */
+  const TERRAIN_PACKS = {
+    woodland: {
+      id: 'woodland',
+      label: '林地',
+      kinds: ['trunk', 'lean_trunk'],
+      bark: [
+        [22, 16, 12],
+        [34, 26, 18],
+        [48, 36, 24],
+        [18, 22, 16],
+      ],
+      fgCount: [3, 7],
+      mgCount: [2, 5],
+      fgScroll: [1.22, 1.48],
+      mgScroll: [0.38, 0.55],
+      coreAlpha: [0.58, 0.86],
+    },
+  };
+
+  /** @type {string} */
+  let terrainId = 'woodland';
+  /** @type {string|null} */
+  let appliedTerrainId = null;
   /** @type {number|null} */
   let appliedSeed = null;
   /** @type {number} */
@@ -28,6 +61,10 @@
   let midShapes = [];
   /** @type {ShapeSpec[]} */
   let foreShapes = [];
+  /** @type {OccluderSpec[]} */
+  let midOccluders = [];
+  /** @type {OccluderSpec[]} */
+  let foreOccluders = [];
   /** @type {MediaQueryList|null} */
   let coarseMq = null;
   let timeSec = 0;
@@ -57,6 +94,35 @@
    *   scrollFactor: number,
    *   peakMul: number,
    * }} ShapeSpec
+   */
+
+  /**
+   * @typedef {{
+   *   id: string,
+   *   label: string,
+   *   kinds: string[],
+   *   bark: number[][],
+   *   fgCount: [number, number],
+   *   mgCount: [number, number],
+   *   fgScroll: [number, number],
+   *   mgScroll: [number, number],
+   *   coreAlpha: [number, number],
+   * }} TerrainPack
+   */
+
+  /**
+   * @typedef {{
+   *   kind: string,
+   *   u: number,
+   *   widthN: number,
+   *   heightN: number,
+   *   lean: number,
+   *   phase: number,
+   *   scrollFactor: number,
+   *   barkI: number,
+   *   coreAlpha: number,
+   *   canopy: boolean,
+   * }} OccluderSpec
    */
 
   /** 触控 / 低 DPR 降密度。 */
@@ -156,7 +222,55 @@
   }
 
   /**
-   * 由世界种子重建中景/前景规格表。
+   * 当前地形包；未知 id 回退林地。
+   * @returns {TerrainPack}
+   */
+  function getTerrainPack() {
+    return TERRAIN_PACKS[terrainId] || TERRAIN_PACKS.woodland;
+  }
+
+  /**
+   * 由地形包与种子生成一层遮挡物规格。
+   * @param {() => number} rng
+   * @param {TerrainPack} pack
+   * @param {number} count
+   * @param {[number, number]} scrollRange
+   * @param {boolean} foreground
+   * @returns {OccluderSpec[]}
+   */
+  function buildOccluders(rng, pack, count, scrollRange, foreground) {
+    /** @type {OccluderSpec[]} */
+    const list = [];
+    const kinds = pack.kinds.length ? pack.kinds : ['trunk'];
+    for (let i = 0; i < count; i += 1) {
+      const kind = kinds[Math.floor(rng() * kinds.length)];
+      const leanBase = kind === 'lean_trunk' ? 0.08 + rng() * 0.14 : rng() * 0.05;
+      list.push({
+        kind,
+        u: (i + 0.12 + rng() * 0.76) / Math.max(1, count),
+        widthN: foreground
+          ? 0.045 + rng() * 0.07
+          : 0.022 + rng() * 0.035,
+        heightN: foreground
+          ? 0.78 + rng() * 0.28
+          : 0.55 + rng() * 0.35,
+        lean: (rng() < 0.5 ? -1 : 1) * leanBase,
+        phase: rng() * Math.PI * 2,
+        scrollFactor:
+          scrollRange[0] + rng() * (scrollRange[1] - scrollRange[0]),
+        barkI: Math.floor(rng() * pack.bark.length),
+        coreAlpha:
+          pack.coreAlpha[0] +
+          rng() * (pack.coreAlpha[1] - pack.coreAlpha[0]) *
+            (foreground ? 1 : 0.55),
+        canopy: foreground ? rng() > 0.35 : rng() > 0.7,
+      });
+    }
+    return list;
+  }
+
+  /**
+   * 由世界种子重建中景/前景规格表与地形遮挡物。
    * @param {number} worldSeed
    */
   function rebuildFromSeed(worldSeed) {
@@ -214,7 +328,7 @@
     /** @type {ShapeSpec[]} */
     const nextFg = [];
     for (let i = 0; i < fgCount; i += 1) {
-      /* 前景偏上下缘，少挡车厢中带 */
+      /* 柔形前景偏上下缘，少挡车厢中带；硬遮挡由树干承担 */
       const edgePick = rng();
       const v =
         edgePick < 0.48
@@ -239,17 +353,36 @@
       });
     }
 
+    const pack = getTerrainPack();
+    const ocRng = mulberry32(hash2(seed, OCCLUDER_STREAM ^ (terrainId.length * 0x9e37)));
+    const fgOcc = Math.max(
+      2,
+      Math.round((pack.fgCount[0] + density * (pack.fgCount[1] - pack.fgCount[0])) * q)
+    );
+    const mgOcc = Math.max(
+      1,
+      Math.round((pack.mgCount[0] + density * (pack.mgCount[1] - pack.mgCount[0])) * q)
+    );
+
     theme = { seed, palette, opacity, drift };
     midShapes = nextMg;
     foreShapes = nextFg;
+    midOccluders = buildOccluders(ocRng, pack, mgOcc, pack.mgScroll, false);
+    foreOccluders = buildOccluders(ocRng, pack, fgOcc, pack.fgScroll, true);
     appliedSeed = seed;
+    appliedTerrainId = terrainId;
   }
 
-  /** 种子或画质变化时重建。 */
+  /** 种子、画质或地形变化时重建。 */
   function ensureTheme() {
     const seed = resolveWorldSeed();
     const q = qualityFactor();
-    if (theme && appliedSeed === seed && Math.abs(appliedQuality - q) < 0.08) {
+    if (
+      theme &&
+      appliedSeed === seed &&
+      appliedTerrainId === terrainId &&
+      Math.abs(appliedQuality - q) < 0.08
+    ) {
       return;
     }
     rebuildFromSeed(seed);
@@ -445,15 +578,26 @@
 
   /**
    * 将规格点映射到视口内世界 X（按轨卷动 × scrollFactor 平铺）。
+   * linear：线性 slot−offset（与轨枕同向，不经过易反向的 floor 周期）。
    * @param {ShapeSpec} spec
    * @param {number} scrollX
    * @param {number} viewLeft
    * @param {number} period
+   * @param {{ linear?: boolean, scrollSign?: number }} [opts]
    * @returns {number}
    */
-  function scrolledWorldX(spec, scrollX, viewLeft, period) {
-    const phase = ((scrollX * spec.scrollFactor) % period + period) % period;
-    const raw = ((spec.u * period - phase) % period + period) % period;
+  function scrolledWorldX(spec, scrollX, viewLeft, period, opts = {}) {
+    const scrollSign = opts.scrollSign ?? 1;
+    const offset = scrollSign * scrollX * spec.scrollFactor;
+    const slot = spec.u * period;
+    if (opts.linear) {
+      let x = slot - offset;
+      while (x < viewLeft - period * 0.35) x += period;
+      while (x > viewLeft + period * 1.35) x -= period;
+      return x;
+    }
+    const phase = ((offset % period) + period) % period;
+    const raw = ((slot - phase) % period + period) % period;
     return viewLeft + raw;
   }
 
@@ -465,17 +609,21 @@
    * @param {LayerTheme} th
    * @param {number} t
    * @param {number} scrollX
-   * @param {{ strokeMul: number, maxPeak: number }} style
+   * @param {{ strokeMul: number, maxPeak: number, scrollSign?: number, linearScroll?: boolean }} style
    */
   function paintLayer(ctx, rect, specs, th, t, scrollX, style) {
     if (!rect || !(rect.w > 0) || !(rect.h > 0)) return;
+    const scrollOpts = {
+      scrollSign: style.scrollSign ?? 1,
+      linear: Boolean(style.linearScroll),
+    };
     const { left, right, top, bot, w, h } = rect;
     const period = Math.max(800, w * PERIOD_MUL);
     const op = th.opacity;
 
     for (let i = 0; i < specs.length; i += 1) {
       const spec = specs[i];
-      const baseX = scrolledWorldX(spec, scrollX, left, period);
+      const baseX = scrolledWorldX(spec, scrollX, left, period, scrollOpts);
       const driftX =
         Math.sin(t * (0.04 + spec.speedN * 0.03) * th.drift + spec.phase) *
         w *
@@ -560,6 +708,135 @@
   }
 
   /**
+   * 列车前进方向下的视差符号：正速 = 屏幕右行，层元素应向左退（与轨枕同向）。
+   * @returns {number}
+   */
+  function trainScrollSign() {
+    const speed = Number(window.LpTrainDrive?.getState?.()?.speed) || 0;
+    if (Math.abs(speed) < 0.02) return 1;
+    return speed > 0 ? 1 : -1;
+  }
+
+  /**
+   * 进站主题混合：越高则路上树干越淡（交给月台柱列 FX）。
+   * @returns {number}
+   */
+  function stationFade() {
+    const mix = Number(window.LpWorldBackground?.getStationMix?.());
+    if (!Number.isFinite(mix)) return 0;
+    return Math.max(0, Math.min(1, mix));
+  }
+
+  /**
+   * 绘制单根树干遮挡（竖向软边剪影，可带轻冠）。
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {OccluderSpec} spec
+   * @param {number} cx
+   * @param {number} top
+   * @param {number} bot
+   * @param {number} h
+   * @param {number[][]} bark
+   * @param {number} alphaMul
+   */
+  function paintTrunk(ctx, spec, cx, top, bot, h, bark, alphaMul) {
+    const rgb = bark[spec.barkI % bark.length];
+    const halfW = Math.max(10, h * spec.widthN * 0.5);
+    const trunkH = h * spec.heightN;
+    const y0 = bot - trunkH * 0.92;
+    const y1 = bot + h * 0.02;
+    const leanPx = spec.lean * trunkH;
+    const coreA = Math.max(0, Math.min(0.92, spec.coreAlpha * alphaMul));
+    if (coreA < 0.04) return;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx - halfW * 1.05, y1);
+    ctx.lineTo(cx - halfW * 0.72 + leanPx * 0.15, y0 + trunkH * 0.18);
+    ctx.quadraticCurveTo(
+      cx - halfW * 0.55 + leanPx * 0.55,
+      y0,
+      cx + leanPx,
+      y0 - halfW * 0.15
+    );
+    ctx.quadraticCurveTo(
+      cx + halfW * 0.55 + leanPx * 0.55,
+      y0,
+      cx + halfW * 0.72 + leanPx * 0.15,
+      y0 + trunkH * 0.18
+    );
+    ctx.lineTo(cx + halfW * 1.05, y1);
+    ctx.closePath();
+
+    const g = ctx.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
+    g.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+    g.addColorStop(0.18, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${coreA * 0.55})`);
+    g.addColorStop(0.5, `rgba(${Math.min(255, rgb[0] + 12)},${Math.min(255, rgb[1] + 8)},${rgb[2]},${coreA})`);
+    g.addColorStop(0.82, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${coreA * 0.55})`);
+    g.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    /* 树皮暗槽 */
+    ctx.strokeStyle = `rgba(8,6,4,${coreA * 0.35})`;
+    ctx.lineWidth = Math.max(1.2, halfW * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(cx - halfW * 0.15 + leanPx * 0.4, y0 + trunkH * 0.12);
+    ctx.lineTo(cx - halfW * 0.05, y1 - h * 0.04);
+    ctx.stroke();
+
+    if (spec.canopy) {
+      const cy = y0 + halfW * 0.2;
+      const cr = halfW * (2.2 + (spec.phase % 1) * 1.4);
+      const leaf = [
+        Math.max(0, rgb[0] - 8),
+        Math.min(255, rgb[1] + 18),
+        Math.max(0, rgb[2] - 4),
+      ];
+      const cg = ctx.createRadialGradient(cx + leanPx * 0.6, cy, 0, cx + leanPx * 0.6, cy, cr);
+      cg.addColorStop(0, `rgba(${leaf[0]},${leaf[1]},${leaf[2]},${coreA * 0.42})`);
+      cg.addColorStop(0.55, `rgba(${leaf[0]},${leaf[1]},${leaf[2]},${coreA * 0.18})`);
+      cg.addColorStop(1, `rgba(${leaf[0]},${leaf[1]},${leaf[2]},0)`);
+      ctx.fillStyle = cg;
+      ctx.beginPath();
+      ctx.ellipse(cx + leanPx * 0.6, cy, cr, cr * 0.72, spec.lean * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 绘制地形遮挡层（树干等），随轨线性卷动并短暂挡住视野。
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {ReturnType<typeof viewRectFromTransform>} rect
+   * @param {OccluderSpec[]} specs
+   * @param {number} scrollX
+   * @param {number} scrollSign
+   * @param {number} alphaMul
+   */
+  function paintOccluders(ctx, rect, specs, scrollX, scrollSign, alphaMul) {
+    if (!rect || !specs?.length || alphaMul < 0.04) return;
+    const pack = getTerrainPack();
+    const { left, right, top, bot, w, h } = rect;
+    const period = Math.max(1000, w * OCCLUDER_PERIOD_MUL);
+    for (let i = 0; i < specs.length; i += 1) {
+      const spec = specs[i];
+      const baseX = scrolledWorldX(spec, scrollX, left, period, {
+        scrollSign,
+        linear: true,
+      });
+      const instances = [0, period, -period];
+      for (let k = 0; k < instances.length; k += 1) {
+        const ix = baseX + instances[k];
+        const halfW = Math.max(10, h * spec.widthN * 0.5);
+        if (ix + halfW * 2 < left || ix - halfW * 2 > right) continue;
+        if (spec.kind === 'trunk' || spec.kind === 'lean_trunk') {
+          paintTrunk(ctx, spec, ix, top, bot, h, pack.bark, alphaMul);
+        }
+      }
+    }
+  }
+
+  /**
    * 绘中景（背景之后、轨道之前）；列车静止时仍可见轻漂，卷动时拉开纵深。
    * @param {CanvasRenderingContext2D} ctx
    */
@@ -571,16 +848,20 @@
     if (!rect) return;
     if (!(timeSec > 0)) timeSec = performance.now() * 0.001;
     const scrollX = Number(window.LpTrack?.getScrollX?.()) || 0;
+    const sign = trainScrollSign();
+    const fade = 1 - stationFade() * 0.92;
     ctx.save();
     paintLayer(ctx, rect, midShapes, theme, timeSec, scrollX, {
       strokeMul: 0.7,
       maxPeak: 0.14,
+      scrollSign: sign,
     });
+    paintOccluders(ctx, rect, midOccluders, scrollX, sign, fade * 0.72);
     ctx.restore();
   }
 
   /**
-   * 绘前景（玩法层之上、屏幕滤镜之前）；更快卷动 + 边缘大柔形，强化掠过感。
+   * 绘前景（玩法层之上、屏幕滤镜之前）：柔形 + 树干遮挡，右行时向左掠过。
    * @param {CanvasRenderingContext2D} ctx
    */
   function drawForeground(ctx) {
@@ -591,12 +872,54 @@
     if (!rect) return;
     if (!(timeSec > 0)) timeSec = performance.now() * 0.001;
     const scrollX = Number(window.LpTrack?.getScrollX?.()) || 0;
+    const sign = trainScrollSign();
+    const fade = 1 - stationFade() * 0.95;
     ctx.save();
     paintLayer(ctx, rect, foreShapes, theme, timeSec, scrollX, {
       strokeMul: 0.45,
       maxPeak: 0.1,
+      scrollSign: sign,
+      linearScroll: true,
     });
+    paintOccluders(ctx, rect, foreOccluders, scrollX, sign, fade);
     ctx.restore();
+  }
+
+  /**
+   * 切换当前路线地形包（重建遮挡物）；未知 id 忽略。
+   * @param {string} id
+   * @returns {boolean}
+   */
+  function setTerrain(id) {
+    const next = String(id || '').trim();
+    if (!next || !TERRAIN_PACKS[next]) return false;
+    if (terrainId === next) return true;
+    terrainId = next;
+    rebuildFromSeed(resolveWorldSeed());
+    return true;
+  }
+
+  /**
+   * 注册或覆盖地形包（供未来路线扩展）。
+   * @param {TerrainPack} pack
+   * @returns {boolean}
+   */
+  function registerTerrain(pack) {
+    const id = String(pack?.id || '').trim();
+    if (!id || !Array.isArray(pack.kinds) || !Array.isArray(pack.bark)) return false;
+    TERRAIN_PACKS[id] = {
+      id,
+      label: pack.label || id,
+      kinds: pack.kinds.slice(),
+      bark: pack.bark.map((c) => c.slice(0, 3)),
+      fgCount: pack.fgCount || [3, 6],
+      mgCount: pack.mgCount || [2, 4],
+      fgScroll: pack.fgScroll || [1.2, 1.45],
+      mgScroll: pack.mgScroll || [0.35, 0.55],
+      coreAlpha: pack.coreAlpha || [0.55, 0.85],
+    };
+    if (terrainId === id) rebuildFromSeed(resolveWorldSeed());
+    return true;
   }
 
   window.LpParallaxLayers = {
@@ -605,5 +928,9 @@
     drawForeground,
     setSeed,
     getSeed: () => appliedSeed,
+    setTerrain,
+    getTerrain: () => terrainId,
+    registerTerrain,
+    listTerrains: () => Object.keys(TERRAIN_PACKS),
   };
 })();

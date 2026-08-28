@@ -705,22 +705,19 @@
     if (!shot.hitIds) shot.hitIds = new Set();
     if (shot.hitIds.has(hit.id)) return false;
 
-    const Spec = window.LiminalCarriageSpec;
-    const surface = Spec?.hitProjectileSurfaces?.(
-      shot.prevX,
-      shot.prevY,
-      shot.x,
-      shot.y
-    );
-    if (surface) {
-      const st = segmentParamAt(
-        shot.prevX,
-        shot.prevY,
-        shot.x,
-        shot.y,
-        surface.x,
-        surface.y
-      );
+    const occluder = firstOccluderHit(shot.prevX, shot.prevY, shot.x, shot.y);
+    if (occluder) {
+      const st =
+        Number.isFinite(occluder.t)
+          ? occluder.t
+          : segmentParamAt(
+              shot.prevX,
+              shot.prevY,
+              shot.x,
+              shot.y,
+              occluder.x,
+              occluder.y
+            );
       if (st + 1e-6 < hit.t) return false;
     }
 
@@ -806,16 +803,47 @@
     return spawnProjectile(options);
   }
 
-  /** 弹体命中车底 / 轨道时生成尘土并销毁弹实体。 */
+  /**
+   * 月台地牢墙对弹道线段的最近碰撞；非小型地牢返回 null。
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   */
+  function dungeonWallHit(x0, y0, x1, y1) {
+    if (window.LpPlatform?.getScene?.() !== 'platform') return null;
+    if (window.LpPlatform?.getPlatformKind?.() !== 'small') return null;
+    const dungeon = window.LpPlatform?.getDungeon?.();
+    return window.LpDungeon?.hitProjectileWall?.(dungeon, x0, y0, x1, y1) || null;
+  }
+
+  /**
+   * 车底/轨面与地牢墙中更近的遮挡点。
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   */
+  function firstOccluderHit(x0, y0, x1, y1) {
+    const surface = window.LiminalCarriageSpec?.hitProjectileSurfaces?.(x0, y0, x1, y1) || null;
+    const wall = dungeonWallHit(x0, y0, x1, y1);
+    if (!surface) return wall;
+    if (!wall) return surface;
+    const st = segmentParamAt(x0, y0, x1, y1, surface.x, surface.y);
+    const wt = Number.isFinite(wall.t)
+      ? wall.t
+      : segmentParamAt(x0, y0, x1, y1, wall.x, wall.y);
+    return wt < st ? wall : surface;
+  }
+
+  /** 弹体命中车底 / 轨道 / 地牢墙时生成尘土并销毁弹实体。 */
   function applySurfaceImpact(shot) {
-    const Spec = window.LiminalCarriageSpec;
-    if (!Spec?.hitProjectileSurfaces) return false;
-    const hit = Spec.hitProjectileSurfaces(shot.prevX, shot.prevY, shot.x, shot.y);
+    const hit = firstOccluderHit(shot.prevX, shot.prevY, shot.x, shot.y);
     if (!hit) return false;
     const style = PROJECTILE_STYLE[shot.style] || PROJECTILE_STYLE.bullet;
     if (style.impactDust) {
       window.LpImpactFx?.spawnDust?.(hit.x, hit.y, {
-        surface: hit.surface,
+        surface: hit.surface || 'wall',
         dirX: shot.dirX,
         dirY: shot.dirY,
         scale: style.impactDustScale ?? 1,
@@ -1368,18 +1396,18 @@
   }
 
   /**
-   * 自枪口到目标的弹道是否在命中目标前撞车底/轨面（与 applyHostileImpact 同序）。
+   * 自起点到目标的弹道是否在命中前撞车底/轨面/地牢墙（与 applyHostileImpact 同序）。
    * @param {number} x0
    * @param {number} y0
    * @param {number} x1
    * @param {number} y1
    */
   function projectileClearsToPoint(x0, y0, x1, y1) {
-    const Spec = window.LiminalCarriageSpec;
-    if (!Spec?.hitProjectileSurfaces) return true;
-    const surface = Spec.hitProjectileSurfaces(x0, y0, x1, y1);
-    if (!surface) return true;
-    const st = segmentParamAt(x0, y0, x1, y1, surface.x, surface.y);
+    const occluder = firstOccluderHit(x0, y0, x1, y1);
+    if (!occluder) return true;
+    const st = Number.isFinite(occluder.t)
+      ? occluder.t
+      : segmentParamAt(x0, y0, x1, y1, occluder.x, occluder.y);
     return st + 1e-6 >= 1;
   }
 
@@ -1759,6 +1787,7 @@
     getLockedHostileKind,
     getLockedHostileHp,
     predictLeadAim,
+    projectileClearsToPoint,
     PROJECTILE_STYLE,
   };
 })();

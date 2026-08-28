@@ -76,6 +76,15 @@
   const camFocus = { x: local.x, y: Spec.FLOOR_Y };
   const LOOK_WEIGHT = 0.58;
   const LOOK_WEIGHT_Y = 0.36;
+  /**
+   * 列车准星竖直牵引：向下（轨下）压缩、向上（车顶）略放大，
+   * 再经 clampLookLead 非对称钳制。
+   */
+  const LOOK_DOWN_COMPRESS = 0.32;
+  const LOOK_UP_BOOST = 1.12;
+  /** 列车构图：地板落在屏幕的比例（越大越靠下 → 轨下更少、车顶更多）。 */
+  const TRAIN_FLOOR_SCREEN_Y = 0.7;
+  const TRAIN_FLOOR_SCREEN_Y_COARSE = 0.66;
   const CAM_SMOOTH = 9;
   /**
    * 传送级硬对齐阈值（世界距离）。须大于地牢 FLOOR_GAP≈794，
@@ -118,7 +127,7 @@
     return label.split(' / ')[0];
   }
 
-  /** 是否有全屏 UI（物品栏 / 列车·地牢地图 / 锅炉 / 加燃料 / 弹药箱 / 雷达 / 枢机 / 设施编辑 / 月台编组）。 */
+  /** 是否有全屏 UI（物品栏 / 列车·地牢地图 / 锅炉 / 加燃料 / 弹药箱 / 雷达 / 塔莎火控 / 枢机 / 设施编辑 / 月台编组）。 */
   function isUiOpen() {
     return (
       (window.LpInventory?.isOpen() ?? false) ||
@@ -128,6 +137,7 @@
       (window.LpFuelFeed?.isOpen?.() ?? false) ||
       (window.LpGuardCrateUi?.isOpen?.() ?? false) ||
       (window.LpRadarScope?.isOpen?.() ?? false) ||
+      (window.LpTashaRocket?.isFireControlOpen?.() ?? false) ||
       (window.LpAutoConsole?.isOpen?.() ?? false) ||
       (window.LpFacilityEdit?.isOpen?.() ?? false) ||
       (window.LpPlatform?.isEditOpen?.() ?? false)
@@ -186,15 +196,6 @@
     return {
       x: worldX * view.zoom + view.offsetX,
       y: worldY * view.zoom + view.offsetY,
-    };
-  }
-
-  /** 用当前 camFocus 估算相机（供瞄准换算，避免循环依赖）。 */
-  function provisionalCameraView() {
-    return {
-      zoom,
-      offsetX: viewW * 0.5 - camFocus.x * zoom,
-      offsetY: viewH * 0.5 - camFocus.y * zoom,
     };
   }
 
@@ -535,7 +536,7 @@
         active: false,
         ready: false,
       };
-    const view = provisionalCameraView();
+    const view = cameraView();
     const aimAnchorY = avatar.y - 56;
     const playerScreen = worldToScreen(local.x, aimAnchorY, view);
     const { maxLeadX, maxLeadY } = touchAimMaxLeadPx();
@@ -563,10 +564,14 @@
     pointer.known = true;
   }
 
-  /** 准星对应的世界瞄准点。 */
+  /**
+   * 准星对应的世界瞄准点。
+   * 必须用 cameraView()（与绘制同一矩阵）；列车地板锚在 TRAIN_FLOOR_SCREEN_Y，
+   * 若按屏心换算，卫士机炮弹道会整体低于准星。
+   */
   function getAimWorld() {
     if (pointer.known) {
-      return screenToWorld(pointer.x, pointer.y, provisionalCameraView());
+      return screenToWorld(pointer.x, pointer.y, cameraView());
     }
     const facing = avatar.facing >= 0 ? 1 : -1;
     return { x: local.x + facing * 160, y: avatar.y - 56 };
@@ -902,13 +907,16 @@
     const onPlat = isPlatformScene();
     /* 月台略收紧 look-ahead，角色更靠屏中 */
     const leadFracX = turret ? 0.4 : onPlat ? 0.22 : 0.36;
-    const leadFracY = turret ? 0.52 : onPlat ? 0.14 : 0.26;
+    /* 列车：上探车顶多、下探轨下少；炮塔仍允许较大仰角 */
+    const leadFracYUp = turret ? 0.62 : onPlat ? 0.18 : 0.44;
+    const leadFracYDown = turret ? 0.22 : onPlat ? 0.1 : 0.1;
     const maxLeadX = (viewW * leadFracX * lead) / zoom;
-    const maxLeadY = (viewH * leadFracY * lead) / zoom;
+    const maxLeadUp = (viewH * leadFracYUp * lead) / zoom;
+    const maxLeadDown = (viewH * leadFracYDown * lead) / zoom;
     const anchorY = onPlat ? platformCamAnchorY() : sceneFloorY();
     return {
       x: Math.max(local.x - maxLeadX, Math.min(local.x + maxLeadX, targetX)),
-      y: Math.max(anchorY - maxLeadY, Math.min(anchorY + maxLeadY, targetY)),
+      y: Math.max(anchorY - maxLeadUp, Math.min(anchorY + maxLeadDown, targetY)),
     };
   }
 
@@ -994,18 +1002,24 @@
 
     if (feedOpen || isUiOpen() || !pointer.known) {
       const focusX = viewW * (isCoarsePointer() ? 0.5 : 0.48);
-      const floorScreenY = viewH * (isCoarsePointer() ? 0.58 : 0.62);
+      const floorScreenY =
+        viewH * (isCoarsePointer() ? TRAIN_FLOOR_SCREEN_Y_COARSE : TRAIN_FLOOR_SCREEN_Y);
       return {
         zoom,
         offsetX: focusX - camFocus.x * zoom,
         offsetY: floorScreenY - camFocus.y * zoom,
       };
     }
-    return {
-      zoom,
-      offsetX: viewW * 0.5 - camFocus.x * zoom,
-      offsetY: viewH * 0.5 - camFocus.y * zoom,
-    };
+    /* 列车准星模式：地板仍偏下，把多出的竖直视野留给车厢上方 */
+    {
+      const floorScreenY =
+        viewH * (isCoarsePointer() ? TRAIN_FLOOR_SCREEN_Y_COARSE : TRAIN_FLOOR_SCREEN_Y);
+      return {
+        zoom,
+        offsetX: viewW * 0.5 - camFocus.x * zoom,
+        offsetY: floorScreenY - camFocus.y * zoom,
+      };
+    }
   }
 
   /** 每帧平滑更新镜头焦点与控制台 / 加燃料放大 / 炮塔缩小。 */
@@ -1037,12 +1051,7 @@
     } else if (feedOpen) {
       targetY = sceneFloor - 70;
     } else if (isAimCameraMode() && pointer.known) {
-      const provisional = {
-        zoom,
-        offsetX: viewW * 0.5 - camFocus.x * zoom,
-        offsetY: viewH * 0.5 - camFocus.y * zoom,
-      };
-      const world = screenToWorld(pointer.x, pointer.y, provisional);
+      const world = screenToWorld(pointer.x, pointer.y, cameraView());
       /* 月台 look-ahead 更轻，角色保持近中心 */
       const lookW = onPlat ? 0.28 : LOOK_WEIGHT;
       let lookY = turretManned ? 0.58 : onPlat ? 0.12 : LOOK_WEIGHT_Y;
@@ -1052,7 +1061,14 @@
         lookY *= 0.35;
       }
       targetX = local.x * (1 - lookW) + world.x * lookW;
-      targetY = anchorY * (1 - lookY) + world.y * lookY;
+      let blendedY = anchorY * (1 - lookY) + world.y * lookY;
+      /* 列车：鼠标下探轨下压缩、上探车顶略加强 */
+      if (!onPlat) {
+        const dY = blendedY - anchorY;
+        if (dY > 0) blendedY = anchorY + dY * LOOK_DOWN_COMPRESS;
+        else if (dY < 0) blendedY = anchorY + dY * LOOK_UP_BOOST;
+      }
+      targetY = blendedY;
       const clamped = clampLookLead(targetX, targetY);
       targetX = clamped.x;
       targetY = clamped.y;
@@ -1164,6 +1180,9 @@
     if (window.LpGuardTurret?.isManned?.()) {
       window.LpGuardTurret.exitTurret();
     }
+    if (window.LpTashaRocket?.isFireControlOpen?.()) {
+      window.LpTashaRocket.closeFireControl();
+    }
     const dmg = Math.max(0, Number(hit?.damage) || 0);
     playerHp = Math.max(0, playerHp - dmg);
     syncHpHud();
@@ -1171,7 +1190,10 @@
     if (playerHp <= 0) {
       window.LpPlayerDeath?.onLethalHit?.({
         x: local.x,
-        exitTurret: () => window.LpGuardTurret?.exitTurret?.(),
+        exitTurret: () => {
+          window.LpGuardTurret?.exitTurret?.();
+          window.LpTashaRocket?.closeFireControl?.();
+        },
       });
     }
     const kx = Number(hit?.knockVx) || 0;
@@ -1323,7 +1345,7 @@
       avatar.gait = 'walk';
       avatar.moveDirection = 0;
       if (window.LpGuardTurret?.isManned?.() && isAimCameraMode() && pointer.known) {
-        const world = screenToWorld(pointer.x, pointer.y, provisionalCameraView());
+        const world = screenToWorld(pointer.x, pointer.y, cameraView());
         window.LpGuardTurret.aimBoth(world.x, world.y);
         if (Math.abs(world.x - local.x) > 12) {
           avatar.facing = world.x < local.x ? -1 : 1;
@@ -1393,7 +1415,7 @@
 
     // 瞄准时朝向跟随准星（可边走边看）
     if (isAimCameraMode() && pointer.known) {
-      const world = screenToWorld(pointer.x, pointer.y, provisionalCameraView());
+      const world = screenToWorld(pointer.x, pointer.y, cameraView());
       if (Math.abs(world.x - local.x) > 12) {
         avatar.facing = world.x < local.x ? -1 : 1;
       }
@@ -1580,6 +1602,7 @@
     window.LpTrack?.draw?.(ctx);
     window.LpGuardTurret?.draw?.(ctx);
     Spec.CARRIAGES.forEach((car, i) => drawCarriage(car, i));
+    window.LpTashaRocket?.draw?.(ctx);
     window.LpFacilityEdit?.draw?.(ctx);
     window.LpCarriageFire?.draw?.(ctx);
     window.LpGuardTurret?.drawFx?.(ctx);
@@ -1710,7 +1733,12 @@
     window.LpMobDeathFx?.tick?.(dt);
     window.LpReloadAction?.tick?.(dt);
     window.LpGuardTurret?.tick?.(dt);
-    if (!window.LpPlayerDeath?.isIncapacitated?.() && !window.LpGuardTurret?.isManned?.()) {
+    window.LpTashaRocket?.tick?.(dt);
+    if (
+      !window.LpPlayerDeath?.isIncapacitated?.() &&
+      !window.LpGuardTurret?.isManned?.() &&
+      !window.LpTashaRocket?.isManned?.()
+    ) {
       const aim = getAimWorld();
       window.LpHummingbirdDrone?.tick?.(dt, {
         playerX: local.x,
@@ -1861,6 +1889,10 @@
     }
     if (window.LpRadarScope?.isOpen()) {
       window.LpRadarScope.close();
+      return true;
+    }
+    if (window.LpTashaRocket?.isFireControlOpen?.()) {
+      window.LpTashaRocket.closeFireControl();
       return true;
     }
     if (window.LpAutoConsole?.isOpen()) {

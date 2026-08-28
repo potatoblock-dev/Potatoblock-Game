@@ -720,6 +720,7 @@ def try_load_ammo_onto_weapon(
 
 
 def quick_transfer(source: Inventory, source_index: int, target: Inventory) -> bool:
+    """整堆快速转移到目标栏；手部/装备已满时与可接受槽互换并把被换物放回源格。"""
     origin = source.origin_index(source_index)
     stack = source.get_slot(origin)
     if not stack or not target.accepts(stack["itemId"]):
@@ -727,6 +728,35 @@ def quick_transfer(source: Inventory, source_index: int, target: Inventory) -> b
     item = ITEMS.get(stack["itemId"]) or {}
     if item.get("type") == "weapon" or stack.get("mag") is not None or _stack_rot(stack) == 90:
         dest = target.find_place_index(stack["itemId"], _stack_rot(stack))
+        if dest < 0 and target.id in ("hands", "equip"):
+            for i in range(target.size()):
+                if target.is_covered(i):
+                    continue
+                if not target.accepts(stack["itemId"], i):
+                    continue
+                existing = target.get_slot(i)
+                if not existing:
+                    dest = i
+                    break
+                if existing["itemId"] == stack["itemId"]:
+                    continue
+                displaced = place_on_slot(target, i, dict(stack))
+                if not displaced or displaced.get("itemId") == stack["itemId"]:
+                    continue
+                source.take_slot(origin)
+                if source.place_stack(origin, displaced):
+                    return True
+                bag_dest = source.find_place_index(
+                    str(displaced["itemId"]), _stack_rot(displaced)
+                )
+                if bag_dest >= 0 and source.place_stack(bag_dest, displaced):
+                    return True
+                undo = place_on_slot(target, i, displaced)
+                if undo:
+                    source.place_stack(origin, undo)
+                else:
+                    source.place_stack(origin, stack)
+                return False
         if dest < 0:
             return False
         if not target.place_stack(dest, stack):

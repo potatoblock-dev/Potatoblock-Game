@@ -161,6 +161,93 @@
     walks.push({ left, right, y });
   }
 
+  /**
+   * 楼梯井开槽：剔除与楼梯 X 重叠的长走道（其它层房间地板常水平盖住井）。
+   * 短段（阶梯踏步）保留；长段拆成井左右两截。
+   * @param {object[]} walks
+   * @param {object[]} stairs
+   */
+  function carveWalksForStairs(walks, stairs) {
+    if (!walks?.length || !stairs?.length) return;
+    const stepMax = STAIR_STEP_W + 8;
+    for (const s of stairs) {
+      const x0 = Math.min(s.x0, s.x1);
+      const x1 = Math.max(s.x0, s.x1);
+      if (x1 - x0 < 8) continue;
+      const next = [];
+      for (const w of walks) {
+        if (w.right - w.left <= stepMax) {
+          next.push(w);
+          continue;
+        }
+        if (w.right <= x0 || w.left >= x1) {
+          next.push(w);
+          continue;
+        }
+        if (w.left < x0) pushWalk(next, w.left, x0, w.y);
+        if (w.right > x1) pushWalk(next, x1, w.right, w.y);
+      }
+      walks.length = 0;
+      for (const w of next) walks.push(w);
+    }
+  }
+
+  /**
+   * 新跨层房间的水平额外错开：避免与已有楼梯井共用同一 X 带（上下楼梯叠井）。
+   * @param {object} from
+   * @param {{ dc: number, db: number }} dir
+   * @param {object[]} stairs
+   * @param {object[]} rooms
+   */
+  function verticalStairStagger(from, dir, stairs, rooms) {
+    if (!dir.db) return 0;
+    const span = estimateStairSpan(FLOOR_GAP) + STAIR_LANDING;
+    let stagger = 0;
+    for (const s of stairs) {
+      const a = rooms.find((r) => r.id === s.fromRoomId);
+      const b = rooms.find((r) => r.id === s.toRoomId);
+      if (!a || !b) continue;
+      if (a.id !== from.id && b.id !== from.id) continue;
+      const left = a.left <= b.left ? a : b;
+      const right = left === a ? b : a;
+      const wellR = right.left;
+      const wellL = left.right;
+      /* 将要在 from 同侧再开一口井：错开一整段楼梯跨度 */
+      if (dir.dc > 0 && wellR >= from.right - 4) stagger = Math.max(stagger, span);
+      if (dir.dc < 0 && wellL <= from.left + 4) stagger = Math.max(stagger, span);
+    }
+    return stagger;
+  }
+
+  /**
+   * 试算房间与 from 之间的楼梯井是否与已有楼梯 X 严重重叠。
+   * @param {object} from
+   * @param {{ left: number, right: number }} box
+   * @param {object[]} stairs
+   */
+  function stairWellConflicts(from, box, stairs) {
+    const wellL = Math.min(from.right, box.left);
+    const wellR = Math.max(from.left, box.right);
+    /* from 在左：井为 from.right .. box.left；from 在右：box.right .. from.left */
+    let x0;
+    let x1;
+    if (from.right <= box.left) {
+      x0 = from.right;
+      x1 = box.left;
+    } else if (box.right <= from.left) {
+      x0 = box.right;
+      x1 = from.left;
+    } else {
+      return true;
+    }
+    if (x1 - x0 < STAIR_LANDING) return true;
+    for (const s of stairs) {
+      const overlap = Math.min(x1, s.x1) - Math.max(x0, s.x0);
+      if (overlap > STAIR_LANDING * 2) return true;
+    }
+    return false;
+  }
+
   /** 在两层之间造阶梯走道（X 增大时从 lowerY 爬到 upperY，Y 越小越高）。 */
   function buildStairs(walks, x0, lowerY, upperY) {
     const rise = lowerY - upperY;
@@ -212,8 +299,9 @@
    * @param {{ dc: number, db: number }} dir
    * @param {number} width
    * @param {() => number} rng
+   * @param {number} [staggerX] 跨层时额外水平错开，减少叠井
    */
-  function tentativeRoomBeside(from, dir, width, rng) {
+  function tentativeRoomBeside(from, dir, width, rng, staggerX = 0) {
     const rise = Math.abs(dir.db) * FLOOR_GAP;
     const need =
       dir.db === 0
@@ -221,7 +309,7 @@
         : Math.max(
             CORRIDOR_GAP_MIN + Math.floor(rng() * CORRIDOR_GAP_SPAN),
             estimateStairSpan(rise) + 80
-          );
+          ) + Math.max(0, staggerX);
     const floorY = from.floorY - dir.db * FLOOR_GAP;
     let left;
     if (dir.dc > 0) left = from.right + need;
@@ -573,6 +661,81 @@
   }
 
   /**
+   * 线段与墙 AABB 的进入参数 t（0=起点，1=终点）；起点已在墙内则忽略该墙。
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   * @param {{ left: number, top: number, right: number, bottom: number }} box
+   * @returns {number|null}
+   */
+  function segmentEnterAabbT(x0, y0, x1, y1, box) {
+    let t0 = 0;
+    let t1 = 1;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const p = [-dx, dx, -dy, dy];
+    const q = [x0 - box.left, box.right - x0, y0 - box.top, box.bottom - y0];
+    for (let i = 0; i < 4; i += 1) {
+      if (Math.abs(p[i]) < 1e-12) {
+        if (q[i] < 0) return null;
+        continue;
+      }
+      const r = q[i] / p[i];
+      if (p[i] < 0) {
+        if (r > t1) return null;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return null;
+        if (r < t1) t1 = r;
+      }
+    }
+    if (t0 > t1) return null;
+    if (t0 <= 1e-4) return null;
+    return t0;
+  }
+
+  /**
+   * 弹道线段撞到的最近地牢墙；无碰撞返回 null。
+   * @param {ReturnType<typeof generate>|null|undefined} dungeon
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   * @returns {{ x: number, y: number, t: number, surface: 'wall' }|null}
+   */
+  function hitProjectileWall(dungeon, x0, y0, x1, y1) {
+    const walls = dungeon?.walls;
+    if (!walls?.length) return null;
+    let bestT = Infinity;
+    for (const w of walls) {
+      const t = segmentEnterAabbT(x0, y0, x1, y1, w);
+      if (t == null || t >= bestT) continue;
+      bestT = t;
+    }
+    if (!Number.isFinite(bestT) || bestT > 1) return null;
+    return {
+      x: x0 + (x1 - x0) * bestT,
+      y: y0 + (y1 - y0) * bestT,
+      t: bestT,
+      surface: 'wall',
+    };
+  }
+
+  /**
+   * 线段在命中终点前是否不被地牢墙挡住。
+   * @param {ReturnType<typeof generate>|null|undefined} dungeon
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   */
+  function clearsSegment(dungeon, x0, y0, x1, y1) {
+    const hit = hitProjectileWall(dungeon, x0, y0, x1, y1);
+    return !hit || hit.t + 1e-6 >= 1;
+  }
+
+  /**
    * 生成小型地牢：安全屋为根的枢纽/分叉图。
    * 6 向走廊（水平 + 对角），单房最多 3 条边；房间 AABB 仅经走廊/楼梯连通。
    * @param {number} worldSeed
@@ -636,8 +799,10 @@
       if (byCell.has(cellKey)) return false;
 
       const w = ROOM_W_MIN + Math.floor(rng() * ROOM_W_SPAN);
-      const box = tentativeRoomBeside(from, dir, w, rng);
+      const stagger = verticalStairStagger(from, dir, stairs, rooms);
+      const box = tentativeRoomBeside(from, dir, w, rng, stagger);
       if (!fitsIsolated(box, rooms)) return false;
+      if (dir.db && stairWellConflicts(from, box, stairs)) return false;
 
       const room = {
         id: `r${nband}-${ncol}`,
@@ -761,6 +926,9 @@
 
     const walls = buildWalls(rooms, corridors);
 
+    /* 楼梯井开槽须在 shift 前做：楼梯/走道仍是同一相对坐标 */
+    carveWalksForStairs(walks, stairs);
+
     const safeRoom = rooms.find((r) => r.type === 'safehouse') || rooms[0];
     const warehouse = rooms.find((r) => r.type === 'warehouse') || safeRoom;
     const spawnX = (safeRoom.left + safeRoom.right) * 0.5;
@@ -865,29 +1033,46 @@
 
   /**
    * 查询 x 处可走平台顶（Y 越小越高）。
-   * 有 preferY 时取距该 Y 最近的平台（楼梯廊多段叠 x）；否则取最高。
+   * 有 preferY 时优先取「一阶之内」的最近平台，避免被其它层长地板/叠井楼梯粘住；
+   * 一阶内没有再退回全局最近（跌落/跨缺口）。
    * @param {ReturnType<typeof generate>} dungeon
    * @param {number} x
    * @param {number} [preferY]
+   * @param {number} [biasY] 可选：倾向的下一高度（连续上下楼）
    */
-  function floorAt(dungeon, x, preferY) {
+  function floorAt(dungeon, x, preferY, biasY) {
     if (!dungeon?.walks?.length) return null;
-    let best = null;
-    let bestDist = Infinity;
     const prefer = Number.isFinite(preferY) ? preferY : null;
+    const bias = Number.isFinite(biasY) ? biasY : null;
+    /** 约一阶半：只粘相邻踏步，不跳到另一口井或隔层房间地板 */
+    const SNAP = STAIR_STEP_H * 1.75;
+    let bestNear = null;
+    let bestNearScore = Infinity;
+    let bestFar = null;
+    let bestFarDist = Infinity;
+    let bestHigh = null;
     for (const p of dungeon.walks) {
       if (x < p.left || x > p.right) continue;
       if (prefer === null) {
-        if (best === null || p.y < best) best = p.y;
+        if (bestHigh === null || p.y < bestHigh) bestHigh = p.y;
         continue;
       }
       const d = Math.abs(p.y - prefer);
-      if (d < bestDist) {
-        bestDist = d;
-        best = p.y;
+      if (d < bestFarDist) {
+        bestFarDist = d;
+        bestFar = p.y;
+      }
+      if (d > SNAP) continue;
+      let score = d;
+      if (bias !== null) score += Math.abs(p.y - bias) * 0.05;
+      if (score < bestNearScore) {
+        bestNearScore = score;
+        bestNear = p.y;
       }
     }
-    return best;
+    if (prefer === null) return bestHigh;
+    if (bestNear != null) return bestNear;
+    return bestFar;
   }
 
   /**
@@ -1040,6 +1225,8 @@
     floorAt,
     draw,
     resolveBody,
+    hitProjectileWall,
+    clearsSegment,
     platformLootStacks,
     fillPlatformInventory,
     PLATFORM_LOOT_TABLE,

@@ -1090,7 +1090,7 @@
     return removed;
   }
 
-  /** Shift+点击：整堆转移到另一库存。 */
+  /** Shift+点击：整堆转移到另一库存；手部/装备占满时与可接受槽互换。 */
   function quickTransfer(sourceInv, sourceIndex, targetInv) {
     const origin = sourceInv.originIndex(sourceIndex);
     const stack = sourceInv.getSlot(origin);
@@ -1098,7 +1098,34 @@
     if (!targetInv.acceptsItem(stack.itemId)) return;
     const item = Catalog.getItem(stack.itemId);
     if (item?.type === 'weapon' || stack.mag != null || stackRot(stack) === 90) {
-      const dest = targetInv.findPlaceIndex(stack.itemId, stackRot(stack));
+      let dest = targetInv.findPlaceIndex(stack.itemId, stackRot(stack));
+      if (dest < 0 && (targetInv.id === 'hands' || targetInv.id === 'equip')) {
+        for (let i = 0; i < targetInv.size(); i += 1) {
+          if (targetInv.isCovered?.(i)) continue;
+          if (!targetInv.acceptsItem(stack.itemId, i)) continue;
+          const existing = targetInv.getSlot(i);
+          if (!existing) {
+            dest = i;
+            break;
+          }
+          if (existing.itemId === stack.itemId) continue;
+          const displaced = placeOnSlot(targetInv, i, { ...stack });
+          if (!displaced || displaced.itemId === stack.itemId) continue;
+          sourceInv.takeSlot(origin);
+          if (sourceInv.placeStack(origin, displaced)) return;
+          const bagDest = sourceInv.findPlaceIndex(
+            displaced.itemId,
+            stackRot(displaced)
+          );
+          if (bagDest >= 0 && sourceInv.placeStack(bagDest, displaced)) return;
+          /* 放不回背包：撤销交换 */
+          const undo = placeOnSlot(targetInv, i, displaced);
+          if (undo) sourceInv.placeStack(origin, undo);
+          else sourceInv.placeStack(origin, stack);
+          return;
+        }
+        if (dest < 0) return;
+      }
       if (dest < 0) return;
       if (!targetInv.placeStack(dest, stack)) return;
       sourceInv.takeSlot(origin);
