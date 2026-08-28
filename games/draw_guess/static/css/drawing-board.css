@@ -259,6 +259,24 @@ html[data-theme='light'] .drawing-board .line-chip.is-active {
 .drawing-board .pixel-size-fields {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;
 }
+.drawing-board .mobile-only { display: none !important; }
+.drawing-board .pixel-size-input-wrap {
+  display: block; min-height: 40px; padding: 6px 10px; border: 1px solid var(--line-strong);
+  border-radius: 10px; background: var(--field); color: var(--text); text-align: left;
+}
+.drawing-board .pixel-size-input-wrap small {
+  display: block; color: var(--text-muted); font-size: 11px; font-weight: 700;
+}
+.drawing-board .pixel-size-input {
+  display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent;
+  color: inherit; font-size: 16px; font-weight: 800; line-height: 1.2; outline: none;
+  -moz-appearance: textfield;
+}
+.drawing-board .pixel-size-input::-webkit-outer-spin-button,
+.drawing-board .pixel-size-input::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.drawing-board .pixel-size-input:disabled { opacity: .55; cursor: not-allowed; }
 .drawing-board .pixel-size-field {
   min-height: 40px; padding: 6px 10px; border: 1px solid var(--line-strong);
   border-radius: 10px; background: var(--field); color: var(--text);
@@ -280,6 +298,10 @@ html[data-theme='light'] .drawing-board .line-chip.is-active {
 }
 .drawing-board .pixel-numpad button.is-confirm {
   background: #2563eb; color: #fff; border-color: #2563eb;
+}
+@media (max-width: 767px) {
+  .drawing-board button.pixel-size-field.mobile-only { display: block !important; }
+  .drawing-board .pixel-numpad.mobile-only { display: grid !important; }
 }
 .drawing-board .pixel-grid-toggle {
   display: flex; align-items: center; gap: 8px;

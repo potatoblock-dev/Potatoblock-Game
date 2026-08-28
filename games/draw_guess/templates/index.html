@@ -791,10 +791,18 @@
                   <span>显示像素格线</span>
                 </label>
                 <div class="pixel-size-fields">
-                  <button id="pixelWidthField" type="button" class="pixel-size-field is-active"><small>宽</small><span id="pixelWidthValue">32</span></button>
-                  <button id="pixelHeightField" type="button" class="pixel-size-field"><small>高</small><span id="pixelHeightValue">32</span></button>
+                  <label class="pixel-size-input-wrap desktop-only" for="pixelWidthInput">
+                    <small>宽</small>
+                    <input id="pixelWidthInput" class="pixel-size-input" type="number" min="2" max="128" step="1" value="32" aria-label="像素画板宽度">
+                  </label>
+                  <label class="pixel-size-input-wrap desktop-only" for="pixelHeightInput">
+                    <small>高</small>
+                    <input id="pixelHeightInput" class="pixel-size-input" type="number" min="2" max="128" step="1" value="32" aria-label="像素画板高度">
+                  </label>
+                  <button id="pixelWidthField" type="button" class="pixel-size-field mobile-only is-active"><small>宽</small><span id="pixelWidthValue">32</span></button>
+                  <button id="pixelHeightField" type="button" class="pixel-size-field mobile-only"><small>高</small><span id="pixelHeightValue">32</span></button>
                 </div>
-                <div id="pixelNumpad" class="pixel-numpad" aria-label="像素画板数字键盘">
+                <div id="pixelNumpad" class="pixel-numpad mobile-only" aria-label="像素画板数字键盘">
                   <button type="button" data-digit="1">1</button>
                   <button type="button" data-digit="2">2</button>
                   <button type="button" data-digit="3">3</button>
@@ -1601,9 +1609,20 @@
       byId('pixelSizeControls').classList.toggle('hidden', !pixel);
       byId('pixelWidthValue').textContent = pixelDraftWidth || '0';
       byId('pixelHeightValue').textContent = pixelDraftHeight || '0';
+      const widthInput = byId('pixelWidthInput');
+      const heightInput = byId('pixelHeightInput');
+      if (widthInput) {
+        if (document.activeElement !== widthInput) widthInput.value = pixelDraftWidth || '32';
+        widthInput.disabled = !allowed;
+      }
+      if (heightInput) {
+        if (document.activeElement !== heightInput) heightInput.value = pixelDraftHeight || '32';
+        heightInput.disabled = !allowed;
+      }
       byId('pixelWidthField').classList.toggle('is-active', pixelDraftField === 'width');
       byId('pixelHeightField').classList.toggle('is-active', pixelDraftField === 'height');
-      byId('pixelNumpad').querySelectorAll('button').forEach(button => { button.disabled = !allowed; });
+      const numpad = byId('pixelNumpad');
+      if (numpad) numpad.querySelectorAll('button').forEach(button => { button.disabled = !allowed; });
     }
 
     function setCanvasSettingsOpen(open) {
@@ -1680,6 +1699,25 @@
       if (pixelDraftField === 'height') pixelDraftHeight = pixelDraftHeight.slice(0, -1);
       else pixelDraftWidth = pixelDraftWidth.slice(0, -1);
       syncCanvasSettingsUi();
+    }
+
+    /** 桌面端数字框输入时更新像素宽高草稿（不立即提交）。 */
+    function setPixelDraftFromDesktopInput(field, raw) {
+      if (!canSetCanvasBackground()) return;
+      const digits = String(raw).replace(/\D/g, '').slice(0, 3);
+      if (field === 'height') pixelDraftHeight = digits;
+      else pixelDraftWidth = digits;
+      byId('pixelWidthValue').textContent = pixelDraftWidth || '0';
+      byId('pixelHeightValue').textContent = pixelDraftHeight || '0';
+    }
+
+    /** 桌面端输入完成后钳制尺寸并提交像素画布。 */
+    function commitPixelDraftFromDesktopInputs() {
+      if (!canSetCanvasBackground()) return;
+      pixelDraftWidth = String(clamp(parseInt(pixelDraftWidth, 10) || 32, 2, 128));
+      pixelDraftHeight = String(clamp(parseInt(pixelDraftHeight, 10) || 32, 2, 128));
+      syncCanvasSettingsUi();
+      submitCanvasMode('pixel');
     }
 
     function floodFillSegment(segment) {
@@ -4695,6 +4733,23 @@
     byId('pixelCanvasButton').addEventListener('click', () => activatePixelCanvasMode());
     byId('pixelWidthField').addEventListener('click', () => { pixelDraftField = 'width'; syncCanvasSettingsUi(); });
     byId('pixelHeightField').addEventListener('click', () => { pixelDraftField = 'height'; syncCanvasSettingsUi(); });
+    ['pixelWidthInput', 'pixelHeightInput'].forEach(id => {
+      const field = byId(id);
+      if (!field) return;
+      field.addEventListener('pointerdown', event => event.stopPropagation());
+      field.addEventListener('mousedown', event => event.stopPropagation());
+      field.addEventListener('click', event => event.stopPropagation());
+    });
+    byId('pixelWidthInput').addEventListener('input', event => setPixelDraftFromDesktopInput('width', event.target.value));
+    byId('pixelHeightInput').addEventListener('input', event => setPixelDraftFromDesktopInput('height', event.target.value));
+    byId('pixelWidthInput').addEventListener('change', () => commitPixelDraftFromDesktopInputs());
+    byId('pixelHeightInput').addEventListener('change', () => commitPixelDraftFromDesktopInputs());
+    byId('pixelWidthInput').addEventListener('keydown', event => {
+      if (event.key === 'Enter') { event.preventDefault(); commitPixelDraftFromDesktopInputs(); }
+    });
+    byId('pixelHeightInput').addEventListener('keydown', event => {
+      if (event.key === 'Enter') { event.preventDefault(); commitPixelDraftFromDesktopInputs(); }
+    });
     byId('pixelNumpad').addEventListener('click', event => {
       const button = event.target.closest('button');
       if (!button) return;
