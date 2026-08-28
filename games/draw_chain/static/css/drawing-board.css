@@ -12,12 +12,14 @@
   box-shadow: 0 10px 28px rgb(0 0 0 / .22);
 }
 .drawing-board .canvas-stage-surface.is-pixel-canvas {
+  border-radius: 0;
   background:
     linear-gradient(45deg, #d4d4d8 25%, transparent 25%) 0 0 / 16px 16px,
     linear-gradient(-45deg, #d4d4d8 25%, transparent 25%) 0 8px / 16px 16px,
     #e4e4e7;
 }
 .drawing-board .canvas-stage-surface.is-pixel-canvas #drawCanvas {
+  border-radius: 0;
   width: auto; height: auto; max-width: 100%; max-height: 100%;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
@@ -318,4 +320,5 @@ html[data-theme='light'] .drawing-board .line-chip.is-active {
   background-repeat: repeat;
   box-shadow: inset 0 0 0 1px rgb(15 23 42 / .32);
 }
+.drawing-board .canvas-stage-surface.is-pixel-canvas .pixel-grid-overlay { border-radius: 0; }
 .drawing-board .pixel-grid-overlay.hidden { display: none; }
