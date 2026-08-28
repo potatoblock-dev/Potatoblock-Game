@@ -44,6 +44,11 @@ def canvases_equal(left: Dict, right: Dict) -> bool:
     )
 
 
+def reset_room_game_canvas(room: Dict) -> None:
+    """换画师时重置游戏画布规格，避免下一位继承上一位的设置。"""
+    room["game_canvas"] = default_vector_canvas()
+
+
 def normalize_canvas_mode(data: object) -> Dict[str, object]:
     """Validate vector/pixel canvas settings for room state and WebSocket payloads."""
     payload = data if isinstance(data, dict) else {}

@@ -322,3 +322,9 @@ html[data-theme='light'] .drawing-board .line-chip.is-active {
 }
 .drawing-board .canvas-stage-surface.is-pixel-canvas .pixel-grid-overlay { border-radius: 0; }
 .drawing-board .pixel-grid-overlay.hidden { display: none; }
+.drawing-board .pixel-brush-preview {
+  position: absolute; z-index: 4; pointer-events: none;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+}
+.drawing-board .canvas-stage-surface.is-pixel-canvas .pixel-brush-preview { border-radius: 0; }
+.drawing-board .pixel-brush-preview.hidden { display: none; }

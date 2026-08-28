@@ -23,6 +23,7 @@ from app.games.common.drawing_board import (
     default_vector_canvas,
     normalize_canvas_mode,
     redo_player_stroke,
+    reset_room_game_canvas,
     serialize_canvas,
     serialize_strokes,
     undo_player_stroke,
@@ -883,6 +884,7 @@ def start_room_game(room_id: str, room: Dict) -> None:
     room["game_redo"] = {}
     room["previous_game_strokes"] = []
     room["guess_prompt_word"] = ""
+    reset_room_game_canvas(room)
     choose_new_word(room)
     initial_word = room["word"]
     room["chain_steps"].append({"kind": "word", "text": initial_word})
@@ -990,6 +992,7 @@ async def advance_after_guess(room_id: str, room: Dict, guess_text: str) -> None
         room["turn_phase"] = "draw"
         room["game_strokes"] = []
         room["game_redo"] = {}
+        reset_room_game_canvas(room)
         room["round_id"] = uuid.uuid4().hex
         start_draw_turn(room_id, room)
 
@@ -1474,6 +1477,7 @@ async def continue_chain_after_active_removed(
     room["drawer_id"] = next_id
     room["game_strokes"] = []
     room["game_redo"] = {}
+    reset_room_game_canvas(room)
     room["round_id"] = uuid.uuid4().hex
     start_draw_turn(room_id, room)
     await send_room_states(room, include_strokes=True)

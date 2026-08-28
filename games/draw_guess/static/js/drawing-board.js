@@ -146,6 +146,44 @@
       context.restore();
     }
 
+    /**
+     * 在归一化坐标处绘制本地笔刷预览（单点方形笔刷，仅悬停层，不写主画布）。
+     * 画笔为半透明填色，橡皮为描边镂空。
+     */
+    drawPixelBrushPreview(context, x, y, size, color, eraser) {
+      if (!this.pixelMode || !context) return;
+      const width = this.logicalWidth;
+      const height = this.logicalHeight;
+      const brush = clamp(Math.round(Number(size) || 1), 1, 64);
+      const half = Math.floor((brush - 1) / 2);
+      const col = clamp(Math.floor(unitNumber(x) * width), 0, width - 1);
+      const row = clamp(Math.floor(unitNumber(y) * height), 0, height - 1);
+      const left = clamp(col - half, 0, width - 1);
+      const top = clamp(row - half, 0, height - 1);
+      const right = clamp(col - half + brush, 0, width);
+      const bottom = clamp(row - half + brush, 0, height);
+      const stampW = right - left;
+      const stampH = bottom - top;
+      if (stampW <= 0 || stampH <= 0) return;
+      context.save();
+      context.imageSmoothingEnabled = false;
+      if (eraser) {
+        context.globalCompositeOperation = 'source-over';
+        context.fillStyle = 'rgb(255 255 255 / .28)';
+        context.fillRect(left, top, stampW, stampH);
+        context.strokeStyle = 'rgb(15 23 42 / .78)';
+        context.lineWidth = 1;
+        context.strokeRect(left + 0.5, top + 0.5, Math.max(0, stampW - 1), Math.max(0, stampH - 1));
+      } else {
+        const strokeStyle = isHexColor(color) ? color : '#111827';
+        context.globalCompositeOperation = 'source-over';
+        context.globalAlpha = 0.58;
+        context.fillStyle = strokeStyle;
+        context.fillRect(left, top, stampW, stampH);
+      }
+      context.restore();
+    }
+
     setStrokes(strokes, redraw) {
       this.strokes = cloneStrokes(strokes);
       if (redraw !== false) this.redraw();

@@ -2,11 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- maximum-scale / user-scalable：抑制双击与捏合缩放；iOS 新版可能仍忽略，靠 CSS touch-action 兜底 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>{{ game.name }}</title>
   <link rel="stylesheet" href="/static/css/site.css?v=20260718a">
   <link rel="stylesheet" href="/static/games/draw-chain/css/theme.css?v=20260724a">
-  <link rel="stylesheet" href="/static/games/draw-chain/css/drawing-board.css?v=20260827c">
+  <link rel="stylesheet" href="/static/games/draw-chain/css/drawing-board.css?v=20260828a">
   <link rel="stylesheet" href="https://cdn.potatoblock.com/day-night-toggle-button/theme-button.css">
   <script src="https://cdn.potatoblock.com/day-night-toggle-button/theme-button.js"></script>
   <script>
@@ -26,6 +27,15 @@
       else if (mode === 'auto') { const h = new Date().getHours(); theme = (h >= 7 && h < 19) ? 'light' : 'dark'; }
       document.documentElement.dataset.theme = theme;
       localStorage.setItem('pb-theme', theme);
+    })();
+  </script>
+  <script>
+    // 禁止页面级缩放：桌面 Ctrl+滚轮、iOS 捏合手势。
+    (function () {
+      document.addEventListener('gesturestart', function (event) { event.preventDefault(); }, { passive: false });
+      document.addEventListener('wheel', function (event) {
+        if (event.ctrlKey) event.preventDefault();
+      }, { passive: false });
     })();
   </script>
     <style>
@@ -60,6 +70,7 @@
     #joinScreen { position: relative; }
     #joinScreen .theme-controls { position: absolute; top: 14px; right: 14px; }
     * { box-sizing: border-box; }
+    html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
     body { min-width: 320px; overflow-x: hidden; }
     button, input, select { touch-action: manipulation; }
     .hidden { display: none !important; }
@@ -691,6 +702,7 @@
             <div class="canvas-stage-surface">
             <canvas id="drawCanvas" aria-label="公共画布"></canvas>
             <div id="pixelGridOverlay" class="pixel-grid-overlay hidden" aria-hidden="true"></div>
+            <canvas id="pixelBrushPreview" class="pixel-brush-preview hidden" aria-hidden="true"></canvas>
             <div id="danmakuLayer" class="danmaku-layer" aria-hidden="true"></div>
             <div id="artworkDisplayBadge" class="artwork-display-badge hidden" role="status" aria-live="polite">画作展示中</div>
             <div id="roundTransition" class="round-transition hidden" role="status" aria-live="assertive">
@@ -1057,7 +1069,7 @@
     <img id="artworkFullImage" alt="全屏画作">
   </div>
 
-  <script src="/static/games/draw-chain/js/drawing-board.js?v=20260827a"></script>
+  <script src="/static/games/draw-chain/js/drawing-board.js?v=20260828a"></script>
   <script src="/static/games/draw-chain/js/board-adapter.js?v=20260717b"></script>
   <script>
     window.__DRAW_GUESS_INITIAL_ROOM = {% if initial_room %}"{{ initial_room }}"{% else %}""{% endif %};
@@ -1077,6 +1089,8 @@
     const STORAGE_PIXEL_GRID = 'potatoblock.pixelGridVisible.v1';
     const STORAGE_VECTOR_BRUSH = 'potatoblock.vectorBrushSize.v1';
     const STORAGE_PIXEL_BRUSH = 'potatoblock.pixelBrushSize.v1';
+    const STORAGE_GAME_CANVAS = 'drawChain.gameCanvasSpec.v1';
+    const STORAGE_LOBBY_PRIVATE_CANVAS = 'drawChain.lobbyPrivateCanvasSpec.v1';
     const DEFAULT_VECTOR_BRUSH = 5;
     const DEFAULT_PIXEL_BRUSH = 1;
     const BRUSH_SIZE_MIN = 1;
@@ -1135,13 +1149,15 @@
     let mutedPlayerIds = new Set();
     const VECTOR_CANVAS = { mode: 'vector', width: 960, height: 540 };
     let publicCanvasSpec = Object.assign({}, VECTOR_CANVAS);
-    let privateCanvasSpec = Object.assign({}, VECTOR_CANVAS);
+    let privateCanvasSpec = localLobbyPrivateCanvasSpec();
     let lastAppliedCanvasKey = 'vector:960x540';
     let canvasSettingsOpen = false;
     let pixelDraftField = 'width';
     let pixelDraftWidth = '32';
     let pixelDraftHeight = '32';
     let pixelGridVisible = true;
+    let pixelBrushPreviewHovering = false;
+    let pixelBrushPreviewPoint = null;
     let strokes = [];
     let lobbyPublicStrokes = [];
     let lobbyPrivateStrokes = [];
@@ -1249,6 +1265,7 @@
     const chatBox = byId('chatBox');
     const chatRail = byId('chatRail');
     const danmakuLayer = byId('danmakuLayer');
+    const pixelBrushPreview = byId('pixelBrushPreview');
     const mobileChatToggle = byId('mobileChatToggle');
     const mobileChatBackdrop = byId('mobileChatBackdrop');
     const canvasStageSurface = document.querySelector('.canvas-stage-surface');
@@ -1508,23 +1525,109 @@
       canvasStageSurface.classList.toggle('is-pixel-canvas', Boolean(drawingBoard.pixelMode));
       drawingBoard.fitToStage(canvasStageSurface);
       syncPixelGridOverlay();
+      refreshPixelBrushPreview();
+    }
+
+    /** 桌面端像素画板才显示本地笔刷预览；移动端与触摸指针不启用。 */
+    function supportsPixelBrushPreview() {
+      return !isMobileBoardLayout() && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    }
+
+    /** 悬停时是否应绘制本地笔刷预览。 */
+    function shouldShowPixelBrushPreview() {
+      if (!supportsPixelBrushPreview()) return false;
+      if (!canDraw() || isDrawing) return false;
+      if (!drawingBoard.pixelMode) return false;
+      return currentDrawingTool === 'brush' || currentDrawingTool === 'eraser';
+    }
+
+    /** 清除本地笔刷预览层。 */
+    function clearPixelBrushPreview() {
+      if (!pixelBrushPreview) return;
+      pixelBrushPreview.classList.add('hidden');
+      pixelBrushPreview.setAttribute('aria-hidden', 'true');
+      const context = pixelBrushPreview.getContext('2d');
+      if (context) context.clearRect(0, 0, pixelBrushPreview.width, pixelBrushPreview.height);
+    }
+
+    /** 把笔刷预览层对齐到主画布显示区域。 */
+    function syncPixelBrushPreviewLayout() {
+      if (!pixelBrushPreview || !canvasStageSurface) return false;
+      const surfaceRect = canvasStageSurface.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      if (canvasRect.width <= 0 || canvasRect.height <= 0) return false;
+      const logicalW = drawingBoard.logicalWidth;
+      const logicalH = drawingBoard.logicalHeight;
+      if (pixelBrushPreview.width !== logicalW || pixelBrushPreview.height !== logicalH) {
+        pixelBrushPreview.width = logicalW;
+        pixelBrushPreview.height = logicalH;
+      }
+      pixelBrushPreview.style.left = (canvasRect.left - surfaceRect.left) + 'px';
+      pixelBrushPreview.style.top = (canvasRect.top - surfaceRect.top) + 'px';
+      pixelBrushPreview.style.width = canvasRect.width + 'px';
+      pixelBrushPreview.style.height = canvasRect.height + 'px';
+      return true;
+    }
+
+    /** 按当前笔刷状态重绘悬停预览。 */
+    function refreshPixelBrushPreview() {
+      if (!shouldShowPixelBrushPreview() || !pixelBrushPreviewHovering || !pixelBrushPreviewPoint) {
+        clearPixelBrushPreview();
+        return;
+      }
+      if (!syncPixelBrushPreviewLayout()) {
+        clearPixelBrushPreview();
+        return;
+      }
+      const context = pixelBrushPreview.getContext('2d');
+      context.clearRect(0, 0, pixelBrushPreview.width, pixelBrushPreview.height);
+      drawingBoard.drawPixelBrushPreview(
+        context,
+        pixelBrushPreviewPoint.x,
+        pixelBrushPreviewPoint.y,
+        currentSize,
+        currentColor,
+        currentDrawingTool === 'eraser'
+      );
+      pixelBrushPreview.classList.remove('hidden');
+      pixelBrushPreview.setAttribute('aria-hidden', 'false');
+    }
+
+    /** 指针在画布上移动时更新本地笔刷预览。 */
+    function handleCanvasHoverMove(event) {
+      if (!event || event.pointerType === 'touch') return;
+      pixelBrushPreviewHovering = true;
+      pixelBrushPreviewPoint = normalizedPoint(event);
+      refreshPixelBrushPreview();
+    }
+
+    /** 指针离开画布时移除本地笔刷预览。 */
+    function handleCanvasHoverLeave() {
+      pixelBrushPreviewHovering = false;
+      pixelBrushPreviewPoint = null;
+      clearPixelBrushPreview();
     }
 
     /** 把格线叠在像素画板上并对齐格子，不写入画作、不挡笔触。 */
     function syncPixelGridOverlay() {
       const overlay = byId('pixelGridOverlay');
       const gridButton = byId('pixelGridButton');
+      const gridToggle = byId('pixelGridToggle');
+      const gridToggleLabel = gridToggle ? gridToggle.closest('.pixel-grid-toggle') : null;
       const pixel = Boolean(drawingBoard.pixelMode);
+      const canUseGrid = canDraw();
+      const show = pixel && canUseGrid && pixelGridVisible;
       if (gridButton) {
-        gridButton.classList.toggle('hidden', !pixel);
-        if (pixel) {
+        gridButton.classList.toggle('hidden', !pixel || !canUseGrid);
+        if (pixel && canUseGrid) {
           gridButton.textContent = pixelGridVisible ? '隐藏参考线' : '显示参考线';
           gridButton.setAttribute('aria-pressed', String(pixelGridVisible));
           gridButton.title = pixelGridVisible ? '隐藏像素格参考线' : '显示像素格参考线';
         }
       }
+      if (gridToggle) gridToggle.disabled = !canUseGrid;
+      if (gridToggleLabel) gridToggleLabel.classList.toggle('hidden', !pixel || !canUseGrid);
       if (!overlay || !canvasStageSurface) return;
-      const show = pixel && pixelGridVisible;
       overlay.classList.toggle('hidden', !show);
       overlay.setAttribute('aria-hidden', String(!show));
       if (!show) return;
@@ -1539,8 +1642,9 @@
       overlay.style.backgroundSize = (canvasRect.width / cols) + 'px ' + (canvasRect.height / rows) + 'px';
     }
 
-    /** 开关像素格线，并记在本机。 */
+    /** 开关像素格线，并记在本机（仅在自己可作画时生效）。 */
     function setPixelGridVisible(visible) {
+      if (!canDraw()) return;
       pixelGridVisible = Boolean(visible);
       const toggle = byId('pixelGridToggle');
       if (toggle) toggle.checked = pixelGridVisible;
@@ -1562,6 +1666,71 @@
 
     function canvasSpecKey(spec) {
       return spec.mode + ':' + spec.width + 'x' + spec.height;
+    }
+
+    /** 从 localStorage 读取本机画布规格。 */
+    function readLocalCanvasSpec(storageKey) {
+      try {
+        const raw = JSON.parse(localStorage.getItem(storageKey) || 'null');
+        if (!raw || typeof raw !== 'object') return null;
+        return canvasSpecFromPayload(raw);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    /** 把本机画布规格写入 localStorage。 */
+    function writeLocalCanvasSpec(storageKey, spec) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(canvasSpecFromPayload(spec)));
+      } catch (error) {}
+    }
+
+    /** 返回本机游戏画布偏好（各画师各自记忆）。 */
+    function localGameCanvasSpec() {
+      return readLocalCanvasSpec(STORAGE_GAME_CANVAS) || Object.assign({}, VECTOR_CANVAS);
+    }
+
+    /** 返回本机大厅私人画布偏好。 */
+    function localLobbyPrivateCanvasSpec() {
+      return readLocalCanvasSpec(STORAGE_LOBBY_PRIVATE_CANVAS) || Object.assign({}, VECTOR_CANVAS);
+    }
+
+    /** 按场景持久化画布规格到本机。 */
+    function persistLocalCanvasSpec(scope, spec) {
+      const normalized = canvasSpecFromPayload(spec);
+      if (scope === 'game') writeLocalCanvasSpec(STORAGE_GAME_CANVAS, normalized);
+      else if (scope === 'lobby-private') writeLocalCanvasSpec(STORAGE_LOBBY_PRIVATE_CANVAS, normalized);
+    }
+
+    /** 游戏中当前画师使用本机画布，不继承上一位画师的设置。 */
+    function shouldUseLocalGameCanvas() {
+      return phase === 'playing' && role === 'drawer' && turnPhase === 'draw' && canvasScope === 'game';
+    }
+
+    /** 向房间广播当前画师的本地画布，供其他玩家对齐显示。 */
+    function announceLocalGameCanvas(roundId) {
+      const spec = localGameCanvasSpec();
+      send({
+        type: 'canvas_mode',
+        mode: spec.mode,
+        width: spec.width,
+        height: spec.height,
+        round_id: roundId || currentRoundId
+      });
+    }
+
+    /** 游戏中画师套用本机设置；其他角色沿用服务端当前回合画布。 */
+    function applyGameCanvasFromState(message, options) {
+      const settings = options || {};
+      if (shouldUseLocalGameCanvas()) {
+        applyCanvasSpec(localGameCanvasSpec(), { skipRedraw: true });
+        if (settings.announce) announceLocalGameCanvas(message.round_id);
+        return;
+      }
+      if (message.canvas || message.mode) {
+        applyCanvasSpec(message.canvas || message, { skipRedraw: true });
+      }
     }
 
     function canvasModeMessageType() {
@@ -1601,6 +1770,10 @@
         }
         applyCanvasSpec(spec);
         if (Array.isArray(message.strokes)) loadLobbyPublicStrokes(message.strokes, false);
+        return;
+      }
+      if (shouldUseLocalGameCanvas()) {
+        if (Array.isArray(message.strokes)) loadStrokes(message.strokes, false);
         return;
       }
       if (isPrivateLobbyCanvas()) return;
@@ -1671,6 +1844,7 @@
       if (isPrivateLobbyCanvas()) {
         const previous = canvasSpecKey(privateCanvasSpec);
         applyCanvasSpec(spec);
+        persistLocalCanvasSpec('lobby-private', spec);
         if (canvasSpecKey(spec) !== previous) {
           lobbyPrivateStrokes = filterStrokesKeepingBackground(lobbyPrivateStrokes);
           privateRedo = [];
@@ -1679,6 +1853,10 @@
           updateHistoryButtons();
         }
         return;
+      }
+      if (shouldUseLocalGameCanvas()) {
+        persistLocalCanvasSpec('game', spec);
+        applyCanvasSpec(spec);
       }
       send({
         type: canvasModeMessageType(),
@@ -1875,7 +2053,7 @@
         if (message.scope === 'lobby') {
           publicCanvasSpec = spec;
           if (!isPrivateLobbyCanvas()) applyCanvasSpec(spec, { skipRedraw: true });
-        } else if (!isPrivateLobbyCanvas()) {
+        } else if (!isPrivateLobbyCanvas() && !shouldUseLocalGameCanvas()) {
           applyCanvasSpec(spec, { skipRedraw: true });
         }
       }
@@ -2110,6 +2288,7 @@
       }
       if (event.button !== 0 && !(usingStylus && isPenEraser(event))) return;
       event.preventDefault();
+      clearPixelBrushPreview();
       if (isPrivateLobbyCanvas()) privateRedo = [];
       isDrawing = true;
       syncFloatingToolsHiddenForStroke();
@@ -2135,7 +2314,11 @@
     }
 
     function moveDrawing(event) {
-      if (!isDrawing || !lastPoint) return;
+      if (!isDrawing) {
+        handleCanvasHoverMove(event);
+        return;
+      }
+      if (!lastPoint) return;
       if (activeDrawPointerId !== null && event.pointerId !== activeDrawPointerId) return;
       event.preventDefault();
       if (activeStrokeIsStylus) {
@@ -2194,6 +2377,7 @@
       if (event && canvas.hasPointerCapture(event.pointerId)) {
         try { canvas.releasePointerCapture(event.pointerId); } catch (error) {}
       }
+      refreshPixelBrushPreview();
     }
 
     function applyMobileSectionState(container, toggle, body, icon, expanded) {
@@ -2354,7 +2538,7 @@
       privateRedo = [];
       strokes = lobbyPublicStrokes;
       publicCanvasSpec = Object.assign({}, VECTOR_CANVAS);
-      privateCanvasSpec = Object.assign({}, VECTOR_CANVAS);
+      privateCanvasSpec = localLobbyPrivateCanvasSpec();
       applyCanvasSpec(publicCanvasSpec, { skipRedraw: true });
     }
 
@@ -3849,7 +4033,9 @@
       setArtworkDisplay(0);
       setRoundTransition(0);
       renderArtworkGallery(message.artworks);
-      if (message.canvas || message.mode) applyCanvasSpec(message.canvas || message, { skipRedraw: true });
+      const becameDrawer = !wasDrawer && role === 'drawer' && turnPhase === 'draw' && canvasScope === 'game';
+      const newDrawTurn = becameDrawer || (role === 'drawer' && turnPhase === 'draw' && canvasScope === 'game' && roundChanged);
+      applyGameCanvasFromState(message, { announce: newDrawTurn });
       if (canvasScope === 'lobby') {
         if (Array.isArray(message.strokes)) {
           loadLobbyPublicStrokes(message.strokes, preserveDrawing);
@@ -4302,6 +4488,8 @@
       const canvasToggle = byId('canvasSettingsToggle');
       if (canvasToggle) canvasToggle.disabled = !canSetCanvasBackground();
       syncCanvasSettingsUi();
+      syncPixelGridOverlay();
+      refreshPixelBrushPreview();
       eyedropperButton.disabled = !canDraw();
       fillButton.disabled = !canDraw();
       lineButton.disabled = !canDraw();
@@ -4432,6 +4620,7 @@
       };
       byId('boardToolStatus').textContent = '当前工具：' + toolNames[currentDrawingTool];
       canvas.style.cursor = currentDrawingTool === 'eraser' ? 'cell' : currentDrawingTool === 'eyedropper' ? 'copy' : currentDrawingTool === 'fill' ? 'crosshair' : 'crosshair';
+      refreshPixelBrushPreview();
     }
 
     function isHexColor(value) {
@@ -4515,6 +4704,7 @@
         hsvH: Math.round(hsv.h), hsvS: Math.round(hsv.s), hsvV: Math.round(hsv.v),
       });
       updateColorSliderGradients(rgb, hsv);
+      refreshPixelBrushPreview();
     }
 
     function updateColorSlotButtons() {
@@ -4605,6 +4795,7 @@
       syncBrushSizeInputs(currentSize);
       byId('brushPreviewDot').style.setProperty('--size', currentSize + 'px');
       if (settings.persist !== false) persistBrushSizeForMode(Boolean(drawingBoard.pixelMode), currentSize);
+      refreshPixelBrushPreview();
     }
 
     function commitBrushSizeField(field) {
@@ -4667,8 +4858,14 @@
     canvas.addEventListener('pointercancel', stopDrawing);
     canvas.addEventListener('lostpointercapture', stopDrawing);
     canvas.addEventListener('contextmenu', event => event.preventDefault());
-    canvas.addEventListener('pointerenter', event => { if (isStylusPen(event)) markPenActivity(event, true); });
-    canvas.addEventListener('pointerleave', event => { if (isStylusPen(event) && !isDrawing) markPenActivity(event, false); });
+    canvas.addEventListener('pointerenter', event => {
+      if (isStylusPen(event)) markPenActivity(event, true);
+      if (!isDrawing && event.pointerType !== 'touch') handleCanvasHoverMove(event);
+    });
+    canvas.addEventListener('pointerleave', event => {
+      handleCanvasHoverLeave();
+      if (isStylusPen(event) && !isDrawing) markPenActivity(event, false);
+    });
     canvas.addEventListener('dragstart', event => event.preventDefault());
     async function pickRandomRoom() {
       const button = byId("randomRoomButton");

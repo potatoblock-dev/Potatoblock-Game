@@ -23,6 +23,7 @@ from app.games.common.drawing_board import (
     default_vector_canvas,
     normalize_canvas_mode,
     redo_player_stroke,
+    reset_room_game_canvas,
     serialize_canvas,
     serialize_strokes,
     undo_player_stroke,
@@ -746,6 +747,7 @@ def start_room_game(room: Dict) -> None:
     room["guessed_this_round"] = set()
     room["game_strokes"] = []
     room["game_redo"] = {}
+    reset_room_game_canvas(room)
     choose_new_word(room)
 
 
@@ -798,6 +800,7 @@ def advance_game_turn(room: Dict, completed_turn: bool = True) -> List[str]:
     room["guessed_this_round"] = set()
     room["game_strokes"] = []
     room["game_redo"] = {}
+    reset_room_game_canvas(room)
     choose_new_word(room)
     return promoted_names
 
