@@ -876,6 +876,7 @@
               </button>
               <button id="eyedropperButton" type="button" class="tool-button" aria-pressed="false">取色</button>
               <button id="canvasBackgroundButton" type="button" class="tool-button" title="使用当前前景色">背景</button>
+              <button id="pixelGridButton" type="button" class="tool-button hidden" aria-pressed="true" title="隐藏像素格参考线">隐藏参考线</button>
               <button id="clearButton" type="button" class="tool-button danger" aria-pressed="false">清空</button>
               <button id="mobileColorToggle" type="button" class="tool-button mobile-color-toggle" aria-expanded="false" aria-controls="mobileColorSheet" title="颜色">
                 <span id="mobileColorSwatch" class="mobile-color-swatch" style="background:#111827"></span>
@@ -1504,8 +1505,18 @@
     /** 把格线叠在像素画板上并对齐格子，不写入画作、不挡笔触。 */
     function syncPixelGridOverlay() {
       const overlay = byId('pixelGridOverlay');
+      const gridButton = byId('pixelGridButton');
+      const pixel = Boolean(drawingBoard.pixelMode);
+      if (gridButton) {
+        gridButton.classList.toggle('hidden', !pixel);
+        if (pixel) {
+          gridButton.textContent = pixelGridVisible ? '隐藏参考线' : '显示参考线';
+          gridButton.setAttribute('aria-pressed', String(pixelGridVisible));
+          gridButton.title = pixelGridVisible ? '隐藏像素格参考线' : '显示像素格参考线';
+        }
+      }
       if (!overlay || !canvasStageSurface) return;
-      const show = Boolean(drawingBoard.pixelMode) && pixelGridVisible;
+      const show = pixel && pixelGridVisible;
       overlay.classList.toggle('hidden', !show);
       overlay.setAttribute('aria-hidden', String(!show));
       if (!show) return;
@@ -4983,6 +4994,7 @@
     undoButton.addEventListener('click', requestUndo);
     redoButton.addEventListener('click', requestRedo);
     canvasBackgroundButton.addEventListener('click', setCanvasBackgroundFromForeground);
+    byId('pixelGridButton').addEventListener('click', () => setPixelGridVisible(!pixelGridVisible));
     clearButton.addEventListener('click', event => {
       event.stopPropagation();
       requestClear();
