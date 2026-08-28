@@ -65,8 +65,9 @@ def attach_pwa_routes(app: FastAPI) -> None:
     async def pwa_login_done(request: Request) -> HTMLResponse:
         """弹窗登录成功后通知 opener 并关闭。"""
         return TEMPLATES.TemplateResponse(
-            "login_popup_done.html",
-            {"request": request},
+            request=request,
+            name="login_popup_done.html",
+            context={},
         )
 
     @app.get("/api/me", include_in_schema=False)
