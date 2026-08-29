@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>合作画板 · Potatoblock</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap">
+  <link rel="stylesheet" href="/static/css/site.css">
+  <link rel="stylesheet" href="/static/games/collab-canvas/css/drawing-board.css">
+  <link rel="stylesheet" href="/static/games/collab-canvas/css/collab-canvas.css">
+  <link rel="stylesheet" href="/static/games/collab-canvas/css/collab-workspace.css">
+</head>
+<body>
+  <main class="collab-main">
+    <section id="joinScreen" class="join-screen{% if initial_room %} hidden{% endif %}">
+      <div class="join-card">
+        <h1>{{ game.name }}</h1>
+        <p class="join-hint">输入房间号进入；不存在则自动创建。</p>
+        <label for="roomInput">房间号</label>
+        <div class="join-room-row">
+          <input id="roomInput" type="text" maxlength="6" placeholder="AB12" value="{{ initial_room }}" autocomplete="off">
+          <button type="button" id="randomRoomBtn" class="btn" title="随机加入可进入的房间">随机</button>
+        </div>
+        <button type="button" id="joinBtn" class="btn primary join-submit">进入房间</button>
+        <p id="joinError" class="join-error" role="alert"></p>
+        <a href="/" class="join-back">← 返回游戏菜单</a>
+      </div>
+    </section>
+
+    <section id="roomScreen" class="room-screen{% if not initial_room %} hidden{% endif %}">
+      <div class="collab-shell">
+        <header class="collab-topbar">
+          <div class="collab-topbar-left">
+            <h1>合作画板</h1>
+            <span id="roomCode" class="room-badge">{{ initial_room or '----' }}</span>
+            <span id="memberCount" class="room-badge">0/0</span>
+          </div>
+          <div class="collab-topbar-right">
+            <button type="button" id="undoBtn" class="ws-btn" data-tooltip="撤销"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">undo</span>撤销</button>
+            <button type="button" id="redoBtn" class="ws-btn" data-tooltip="重做"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">redo</span>重做</button>
+            <button type="button" id="clearBtn" class="ws-btn" data-tooltip="清空当前图层"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">layers_clear</span>清空图层</button>
+            <div class="export-menu" id="exportMenu">
+              <button type="button" id="exportToggleBtn" class="ws-btn" data-tooltip="导出画板"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">download</span>导出 ▾</button>
+              <div class="export-menu-panel hidden" id="exportMenuPanel">
+                <p class="export-menu-hint">全部画板，每板一个文件</p>
+                <button type="button" data-export="png">PNG</button>
+                <button type="button" data-export="jpeg">JPEG</button>
+                <button type="button" data-export="kra">Krita (.kra)</button>
+              </div>
+            </div>
+            <button type="button" id="copyLinkBtn" class="ws-btn" data-tooltip="复制房间链接"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">link</span>复制链接</button>
+            <button type="button" id="settingsToggleBtn" class="ws-btn ws-btn-icon-only" data-tooltip="设置" aria-label="设置">
+              <span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">settings</span>
+            </button>
+            <button type="button" id="leaveRoomBtn" class="ws-btn" data-tooltip="离开房间"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">logout</span>离开</button>
+          </div>
+        </header>
+        <p id="statusText" class="status-text"></p>
+
+        <div id="collabWorkspace" class="workspace drawing-board">
+          <aside id="dockLeft" data-dock-slot="left"></aside>
+
+          <div id="dockCenter" data-dock-slot="center">
+            <div class="canvas-column">
+              <div class="canvas-stage-wrap">
+                <div id="canvasZoomBadge" class="canvas-zoom-badge hidden" aria-live="polite">100%</div>
+                <div id="canvasStage" class="canvas-stage">
+                  <div id="canvasStageSurface" class="canvas-stage-surface">
+                    <canvas id="drawCanvas" width="960" height="540"></canvas>
+                    <div id="cursorLayer"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside id="dockRight" data-dock-slot="right">
+            <div id="dockRightTop" data-dock-slot="rightTop">
+              <div class="ws-panel-head">调色 / 工具</div>
+              <div class="ws-panel-body">
+                <div id="colorPickerMount"></div>
+                <div class="tool-opts">
+                  <label>粗细 <input id="brushSize" type="range" min="1" max="64" value="8"></label>
+                </div>
+              </div>
+            </div>
+            <div id="dockSplitter" aria-label="调整面板高度"></div>
+            <div id="dockRightBottom" data-dock-slot="rightBottom">
+              <div class="dock-bottom-tabs">
+                <button type="button" class="dock-bottom-tab is-active" data-bottom-tab="layers">图层</button>
+                <button type="button" class="dock-bottom-tab" data-bottom-tab="boards">画板</button>
+              </div>
+              <div id="layerPanelPane" class="dock-bottom-pane is-active" data-bottom-pane="layers">
+                <div class="layer-list" data-layer-list></div>
+                <div class="panel-footer-actions">
+                  <button type="button" data-layer-add data-tooltip="新建图层"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">add</span>新建</button>
+                  <button type="button" data-layer-delete data-tooltip="删除图层"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">delete</span>删除</button>
+                  <button type="button" data-layer-up data-tooltip="图层上移"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">arrow_upward</span>上移</button>
+                  <button type="button" data-layer-down data-tooltip="图层下移"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">arrow_downward</span>下移</button>
+                </div>
+              </div>
+              <div id="boardPanelPane" class="dock-bottom-pane" data-bottom-pane="boards">
+                <div class="board-list" data-board-list></div>
+                <div class="panel-footer-actions">
+                  <button type="button" data-board-add data-tooltip="新建画板"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">add</span>新建画板</button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="settingsModal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <div class="settings-modal-backdrop" data-settings-backdrop>
+      <div class="settings-modal-panel">
+        <header class="settings-modal-header">
+          <h2 id="settingsModalTitle">设置</h2>
+          <button type="button" class="settings-modal-close" data-settings-close aria-label="关闭">
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+          </button>
+        </header>
+        <div class="settings-modal-tabs">
+          <button type="button" class="settings-modal-tab is-active" data-settings-tab="general">常规</button>
+          <button type="button" class="settings-modal-tab" data-settings-tab="peripheral">外设</button>
+          <button type="button" class="settings-modal-tab" data-settings-tab="shortcuts">快捷键</button>
+          <button type="button" class="settings-modal-tab" data-settings-tab="network">网络</button>
+        </div>
+        <div class="settings-modal-body">
+          <div class="settings-modal-pane is-active" data-settings-pane="general">
+            <label class="settings-row">
+              <span class="settings-row-label">取色模式</span>
+              <select id="settingsColorMode" class="settings-select"></select>
+            </label>
+            <button type="button" id="settingsResetView" class="settings-action-btn">重置视图</button>
+            <label class="settings-row">
+              <span class="settings-row-label">最近色排序</span>
+              <select id="settingsRecentOrder" class="settings-select">
+                <option value="recency">最近优先</option>
+                <option value="hsv">HSV 排序</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-row-label">最近色数量</span>
+              <input id="settingsRecentLimit" class="settings-select" type="number" min="2" max="24" step="1" value="12">
+            </label>
+          </div>
+          <div class="settings-modal-pane" data-settings-pane="peripheral">
+            <label class="settings-row settings-row-check">
+              <input id="settingsPenPressure" type="checkbox"> 启用笔压
+            </label>
+            <label class="settings-row">
+              <span class="settings-row-label">灵敏度</span>
+              <input id="settingsPenSensitivity" type="range" min="25" max="200" step="5" value="100">
+              <output id="settingsPenSensitivityOut">100%</output>
+            </label>
+            <div class="pen-test-wrap">
+              <canvas id="penTestCanvas" class="pen-test-canvas" width="480" height="200" aria-label="笔压测试画板"></canvas>
+              <p class="settings-hint pen-test-pressure" data-pen-test-pressure></p>
+            </div>
+          </div>
+          <div class="settings-modal-pane" data-settings-pane="shortcuts">
+            <p class="settings-hint">点击键位按钮后按下组合键；右键点击可清除绑定。</p>
+            <div class="shortcut-list" data-shortcut-list></div>
+            <p class="settings-hint" data-shortcut-status>点击键位后按下新的组合键</p>
+            <button type="button" class="settings-action-btn" data-shortcut-reset>恢复默认快捷键</button>
+          </div>
+          <div class="settings-modal-pane" data-settings-pane="network">
+            <div class="network-row"><span class="network-label">连接状态</span><span data-net-status>—</span></div>
+            <div class="network-row"><span class="network-label">房间号</span><span data-net-room>—</span></div>
+            <div class="network-row"><span class="network-label">延迟 RTT</span><span data-net-rtt>—</span></div>
+            <div class="network-row"><span class="network-label">最近检测</span><span data-net-time>—</span></div>
+            <p class="settings-hint network-error" data-net-error></p>
+            <button type="button" class="settings-action-btn" data-net-test>检测连接</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.COLLAB_BOOT = {
+      userId: {{ user_id | tojson }},
+      nickname: {{ nickname | tojson }},
+      initialRoom: {{ initial_room | tojson }}
+    };
+  </script>
+  <script src="/static/games/collab-canvas/js/drawing-board.js"></script>
+  <script src="/static/games/collab-canvas/js/collab-board-adapter.js"></script>
+  <script src="/static/games/collab-canvas/js/pen-input.js"></script>
+  <script src="/static/games/collab-canvas/js/pen-test-pad.js"></script>
+  <script src="/static/games/collab-canvas/js/cursor-overlay.js"></script>
+  <script src="/static/games/collab-canvas/js/canvas-viewport.js"></script>
+  <script src="/static/games/collab-canvas/js/color-math.js"></script>
+  <script src="/static/games/collab-canvas/js/color-settings.js"></script>
+  <script src="/static/games/collab-canvas/js/color-picker-surface.js"></script>
+  <script src="/static/games/collab-canvas/js/color-picker.js"></script>
+  <script src="/static/games/collab-canvas/js/color-pair-state.js"></script>
+  <script src="/static/games/collab-canvas/js/recent-colors.js"></script>
+  <script src="/static/games/collab-canvas/js/ui-tooltip.js"></script>
+  <script src="/static/games/collab-canvas/js/material-icons.js"></script>
+  <script src="/static/games/collab-canvas/js/workspace-layout.js"></script>
+  <script src="/static/games/collab-canvas/js/tool-rail.js"></script>
+  <script src="/static/games/collab-canvas/js/popup-palette.js"></script>
+  <script src="/static/games/collab-canvas/js/layer-panel.js"></script>
+  <script src="/static/games/collab-canvas/js/board-panel.js"></script>
+  <script src="/static/games/collab-canvas/js/zip-store.js"></script>
+  <script src="/static/games/collab-canvas/js/kra-export.js"></script>
+  <script src="/static/games/collab-canvas/js/collab-export.js"></script>
+  <script src="/static/games/collab-canvas/js/shortcut-registry.js"></script>
+  <script src="/static/games/collab-canvas/js/shortcut-manager.js"></script>
+  <script src="/static/games/collab-canvas/js/network-monitor.js"></script>
+  <script src="/static/games/collab-canvas/js/settings-panel.js"></script>
+  <script src="/static/games/collab-canvas/js/collab-session.js"></script>
+  <script src="/static/games/collab-canvas/js/collab-board.js"></script>
+  <script src="/static/games/collab-canvas/js/collab-app.js"></script>
+</body>
+</html>

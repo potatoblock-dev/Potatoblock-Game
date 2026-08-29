@@ -1,0 +1,67 @@
+:root {
+  --bg: #0f1117;
+  --panel: #1a1d27;
+  --line: rgb(255 255 255 / .08);
+  --text: #f3f4f6;
+  --text-muted: #9ca3af;
+  --accent: #3b82f6;
+  --field: #222638;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+
+.hidden { display: none !important; }
+
+.collab-main { min-height: 100vh; }
+
+/* —— 加入房间页（保留圆角卡片） —— */
+.join-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.join-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 28px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  text-align: center;
+}
+.join-card h1 { margin: 0 0 8px; font-size: 1.75rem; }
+.join-hint { margin: 0 0 20px; color: var(--text-muted); font-size: 14px; }
+.join-card label { display: block; margin-bottom: 8px; color: var(--text-muted); font-size: 14px; text-align: left; }
+.join-room-row { display: flex; gap: 8px; align-items: stretch; }
+.join-card input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: var(--text);
+  font-size: 18px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+.join-submit { width: 100%; margin-top: 16px; padding: 14px; font-size: 16px; }
+.join-error { min-height: 20px; margin: 12px 0 0; color: #f87171; font-size: 13px; }
+.join-back {
+  display: inline-block;
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+.join-back:hover { color: var(--text); text-decoration: underline; }
+
+button, .btn {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--field);
+  color: var(--text); padding: 10px 14px; font-weight: 600; cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: transparent; }
+button:disabled { opacity: .45; cursor: not-allowed; }

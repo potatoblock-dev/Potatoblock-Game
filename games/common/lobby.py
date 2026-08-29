@@ -14,21 +14,23 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set
 
 RANDOM_ROOM_ALPHABET = string.ascii_uppercase + string.digits
 RANDOM_ROOM_FIRST_CHARS = RANDOM_ROOM_ALPHABET.replace("P", "")
+MAX_ROOM_ID_LENGTH = 6
 
 
 def is_valid_deep_link_room_id(
     room_id: str, reserved_segments: Iterable[str] | None = None
 ) -> bool:
-    """校验可放进 /{game}/{room} 路径的房间号。"""
+    """校验可放进 /{game}/{room} 路径的房间号（2–6 位）。"""
     text = str(room_id or "").strip()
-    if len(text) < 2 or len(text) > 32:
+    if len(text) < 2 or len(text) > MAX_ROOM_ID_LENGTH:
         return False
     reserved: Set[str] = {
         str(item).casefold() for item in (reserved_segments or ())
     }
     if text.casefold() in reserved:
         return False
-    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{1,31}", text))
+    suffix_len = MAX_ROOM_ID_LENGTH - 1
+    return bool(re.fullmatch(rf"[A-Za-z0-9][A-Za-z0-9_-]{{1,{suffix_len}}}", text))
 
 
 def list_joinable_lobby_rooms(rooms: Dict[str, Dict]) -> List[str]:
@@ -37,6 +39,18 @@ def list_joinable_lobby_rooms(rooms: Dict[str, Dict]) -> List[str]:
     for room_id, room in rooms.items():
         if room.get("phase") != "lobby":
             continue
+        if str(room_id).upper().startswith("P"):
+            continue
+        if not any(player.get("connected") for player in room.get("players", {}).values()):
+            continue
+        result.append(str(room_id))
+    return result
+
+
+def list_joinable_collab_rooms(rooms: Dict[str, Dict]) -> List[str]:
+    """返回合作画板可随机加入的房间：非 P 开头，且仍有在线玩家。"""
+    result: List[str] = []
+    for room_id, room in rooms.items():
         if str(room_id).upper().startswith("P"):
             continue
         if not any(player.get("connected") for player in room.get("players", {}).values()):

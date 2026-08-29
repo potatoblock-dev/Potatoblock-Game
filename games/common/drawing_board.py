@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Tuple
 
 MAX_STROKES = 1000
 MAX_SEGMENTS_PER_STROKE = 5000
+MAX_LAYERS_PER_BOARD = 20
+DEFAULT_LAYER_ID = "l_default"
 VALID_TOOLS = {"brush", "eraser", "fill", "background"}
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 VECTOR_CANVAS_WIDTH = 960
@@ -112,12 +114,79 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
     }
 
 
+def default_layers() -> List[Dict[str, object]]:
+    """返回默认单图层列表。"""
+    return [
+        {
+            "layer_id": DEFAULT_LAYER_ID,
+            "name": "图层 1",
+            "visible": True,
+            "opacity": 255,
+            "locked": False,
+            "order": 0,
+        }
+    ]
+
+
+def migrate_board_layers(board: Dict) -> None:
+    """旧画板补全 layers 与 stroke.layer_id。"""
+    if "layers" not in board or not board["layers"]:
+        board["layers"] = default_layers()
+    for stroke in board.get("strokes") or []:
+        if "layer_id" not in stroke:
+            stroke["layer_id"] = DEFAULT_LAYER_ID
+
+
+def serialize_layers(layers: List[Dict]) -> List[Dict[str, object]]:
+    """返回图层元数据的 wire 格式。"""
+    return [
+        {
+            "layer_id": layer["layer_id"],
+            "name": layer["name"],
+            "visible": bool(layer.get("visible", True)),
+            "opacity": max(0, min(255, int(layer.get("opacity", 255)))),
+            "locked": bool(layer.get("locked", False)),
+            "order": int(layer.get("order", index)),
+        }
+        for index, layer in enumerate(layers or [])
+    ]
+
+
+def get_layer(board: Dict, layer_id: str) -> Optional[Dict]:
+    """按 id 取图层。"""
+    for layer in board.get("layers") or []:
+        if layer.get("layer_id") == layer_id:
+            return layer
+    return None
+
+
+def layer_has_strokes(board: Dict, layer_id: str) -> bool:
+    """图层是否含非背景笔触。"""
+    for stroke in board.get("strokes") or []:
+        if stroke.get("layer_id", DEFAULT_LAYER_ID) != layer_id:
+            continue
+        for segment in stroke.get("segments") or []:
+            if segment.get("tool") != "background":
+                return True
+    return False
+
+
+def clear_layer_strokes(board: Dict, layer_id: str) -> None:
+    """清空指定图层上的所有笔触。"""
+    kept: List[Dict] = []
+    for stroke in board.get("strokes") or []:
+        if stroke.get("layer_id", DEFAULT_LAYER_ID) != layer_id:
+            kept.append(stroke)
+    board["strokes"] = kept
+
+
 def serialize_strokes(strokes: List[Dict]) -> List[Dict]:
     """Return the stable wire representation for a stroke collection."""
     return [
         {
             "stroke_id": stroke["stroke_id"],
             "owner_id": stroke["owner_id"],
+            "layer_id": stroke.get("layer_id", DEFAULT_LAYER_ID),
             "segments": stroke["segments"],
             "active": stroke["active"],
         }
@@ -126,16 +195,22 @@ def serialize_strokes(strokes: List[Dict]) -> List[Dict]:
 
 
 def append_stroke_segment(
-    strokes: List[Dict], redo_stacks: Dict[str, List[Dict]], player_id: str, data: Dict
+    strokes: List[Dict],
+    redo_stacks: Dict[str, List[Dict]],
+    player_id: str,
+    data: Dict,
+    layer_id: Optional[str] = None,
 ) -> Dict:
     """Append one validated segment and clear only that player's redo stack."""
     segment = normalize_segment(data)
     stroke_id = str(data.get("stroke_id") or uuid.uuid4())[:100]
+    lid = str(layer_id or data.get("layer_id") or DEFAULT_LAYER_ID)
     stroke: Optional[Dict] = None
     for candidate in reversed(strokes):
         if (
             candidate["owner_id"] == player_id
             and candidate["stroke_id"] == stroke_id
+            and candidate.get("layer_id", DEFAULT_LAYER_ID) == lid
             and candidate["active"]
         ):
             stroke = candidate
@@ -146,6 +221,7 @@ def append_stroke_segment(
         stroke = {
             "stroke_id": stroke_id,
             "owner_id": player_id,
+            "layer_id": lid,
             "segments": [],
             "active": True,
         }
@@ -163,6 +239,7 @@ def append_stroke_segments(
     player_id: str,
     stroke_id: str,
     segment_payloads: List[Dict],
+    layer_id: Optional[str] = None,
 ) -> Tuple[Dict, List[Dict]]:
     """Append many validated segments to one stroke; return stroke and normalized segments."""
     if not segment_payloads:
@@ -174,18 +251,28 @@ def append_stroke_segments(
     for payload in segment_payloads:
         packet = dict(payload)
         packet["stroke_id"] = stroke_id
-        stroke = append_stroke_segment(strokes, redo_stacks, player_id, packet)
+        if layer_id:
+            packet["layer_id"] = layer_id
+        stroke = append_stroke_segment(strokes, redo_stacks, player_id, packet, layer_id)
         applied.append(stroke["segments"][-1])
     assert stroke is not None
     return stroke, applied
 
 
 def undo_player_stroke(
-    strokes: List[Dict], redo_stacks: Dict[str, List[Dict]], player_id: str
+    strokes: List[Dict],
+    redo_stacks: Dict[str, List[Dict]],
+    player_id: str,
+    layer_id: Optional[str] = None,
 ) -> Optional[Dict]:
-    """Hide the player's latest active stroke and add it to their redo stack."""
+    """Hide the player's latest active stroke on a layer and add it to their redo stack."""
+    lid = str(layer_id or DEFAULT_LAYER_ID)
     for stroke in reversed(strokes):
-        if stroke["owner_id"] == player_id and stroke["active"]:
+        if (
+            stroke["owner_id"] == player_id
+            and stroke.get("layer_id", DEFAULT_LAYER_ID) == lid
+            and stroke["active"]
+        ):
             stroke["active"] = False
             redo_stacks.setdefault(player_id, []).append(stroke)
             return stroke
