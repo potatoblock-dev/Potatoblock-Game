@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>贴图预览 · 恶魔轮盘赌</title>
+  <link rel="stylesheet" href="/static/css/site.css">
+  <link rel="stylesheet" href="/static/games/devil-roulette/css/devil-roulette.css">
+</head>
+<body>
+  <main class="dr-main">
+    <h1>恶魔轮盘赌 · 贴图布局预览</h1>
+    <p class="join-hint">Aseprite 图层名与帧内容已校正；split 图标取自 gun 图集灰色方块帧。</p>
+    <div class="preview-grid">
+      <section class="preview-section">
+        <h2>道具 / 子弹 (add.json)</h2>
+        <div id="addPreview" class="preview-row"></div>
+      </section>
+      <section class="preview-section">
+        <h2>生命 / 额外</h2>
+        <div id="extraPreview" class="preview-row"></div>
+      </section>
+      <section class="preview-section">
+        <h2>枪械动画 (gun.json)</h2>
+        <div id="gunStrip" class="preview-strip"></div>
+        <div id="gunPreview" class="preview-row"></div>
+      </section>
+    </div>
+    <p><a href="/devil-roulette" class="join-back">← 返回游戏</a></p>
+  </main>
+  <script src="/static/games/devil-roulette/js/sprite-atlas.js"></script>
+  <script>
+    (async function () {
+      const base = '/static/games/devil-roulette/sprites';
+      const addAtlas = await new SpriteAtlas(base).load('add.json');
+      const gunAtlas = await new SpriteAtlas(base).load('gun.json');
+
+      const addItems = [
+        ['accelerater', '加速环'],
+        ['detector', '检测器'],
+        ['auto', '自动击锤'],
+        ['bullet_fake', '空弹'],
+        ['bullet_real', '实弹'],
+      ];
+      const addRoot = document.getElementById('addPreview');
+      addItems.forEach(([name, label]) => {
+        addRoot.appendChild(makePreviewItem(addAtlas, name, label));
+      });
+
+      const extraRoot = document.getElementById('extraPreview');
+      extraRoot.appendChild(makePreviewItem(addAtlas, 'candle', '生命蜡烛'));
+      const splitWrap = document.createElement('div');
+      splitWrap.className = 'preview-item';
+      const splitCanvas = document.createElement('canvas');
+      splitCanvas.width = 64;
+      splitCanvas.height = 96;
+      addAtlas.drawFrameByIndex(splitCanvas.getContext('2d'), 4, 16, 8, 2.5, gunAtlas);
+      splitWrap.append(splitCanvas, Object.assign(document.createElement('span'), { textContent: 'split · gun#4' }));
+      extraRoot.appendChild(splitWrap);
+
+      const stripCanvas = document.createElement('canvas');
+      stripCanvas.width = gunAtlas.image.width;
+      stripCanvas.height = gunAtlas.image.height;
+      stripCanvas.getContext('2d').drawImage(gunAtlas.image, 0, 0);
+      document.getElementById('gunStrip').appendChild(stripCanvas);
+
+      const gunRoot = document.getElementById('gunPreview');
+      Object.keys(gunAtlas.frames).forEach((key, idx) => {
+        const entry = gunAtlas.frames[key];
+        const f = entry.frame;
+        const wrap = document.createElement('div');
+        wrap.className = 'preview-item';
+        const canvas = document.createElement('canvas');
+        canvas.width = f.w;
+        canvas.height = f.h;
+        canvas.getContext('2d').drawImage(gunAtlas.image, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+        wrap.append(canvas, Object.assign(document.createElement('span'), { textContent: `#${idx}` }));
+        gunRoot.appendChild(wrap);
+      });
+
+      function makePreviewItem(atlas, name, label) {
+        const entry = atlas.getFrame(name);
+        const f = entry.frame;
+        const wrap = document.createElement('div');
+        wrap.className = 'preview-item';
+        const canvas = document.createElement('canvas');
+        canvas.width = f.w;
+        canvas.height = f.h;
+        atlas.drawFrame(canvas.getContext('2d'), name, 0, 0, 1);
+        wrap.append(canvas, Object.assign(document.createElement('span'), { textContent: `${name} · ${label}` }));
+        return wrap;
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -9,7 +9,7 @@ MAX_STROKES = 1000
 MAX_SEGMENTS_PER_STROKE = 5000
 MAX_LAYERS_PER_BOARD = 20
 DEFAULT_LAYER_ID = "l_default"
-VALID_TOOLS = {"brush", "eraser", "fill", "background"}
+VALID_TOOLS = {"brush", "eraser", "fill", "background", "line", "rect", "ellipse", "gradient"}
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 VECTOR_CANVAS_WIDTH = 960
 VECTOR_CANVAS_HEIGHT = 540
@@ -103,6 +103,30 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
             "color": color,
             "tool": tool,
         }
+    if tool == "gradient":
+        color2 = _hex_color(data.get("color2", "#ffffff"))
+        return {
+            "x1": _unit_float(data["x1"]),
+            "y1": _unit_float(data["y1"]),
+            "x2": _unit_float(data["x2"]),
+            "y2": _unit_float(data["y2"]),
+            "color": color,
+            "color2": color2,
+            "tool": tool,
+        }
+    if tool in {"line", "rect", "ellipse"}:
+        segment: Dict[str, object] = {
+            "x1": _unit_float(data["x1"]),
+            "y1": _unit_float(data["y1"]),
+            "x2": _unit_float(data["x2"]),
+            "y2": _unit_float(data["y2"]),
+            "color": color,
+            "size": max(1, min(64, int(data.get("size", 5)))),
+            "tool": tool,
+        }
+        if tool in {"rect", "ellipse"}:
+            segment["filled"] = bool(data.get("filled", False))
+        return segment
     return {
         "x1": _unit_float(data["x1"]),
         "y1": _unit_float(data["y1"]),

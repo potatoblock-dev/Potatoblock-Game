@@ -10,6 +10,7 @@
       this.wsUrl = settings.wsUrl || '';
       this.selfId = settings.selfId || '';
       this.nickname = settings.nickname || '';
+      this.getDisplayName = settings.getDisplayName || null;
       this.handlers = settings.handlers || {};
       this.ws = null;
       this.roomId = '';
@@ -180,27 +181,51 @@
         this.connect();
         return;
       }
-      this.send({ type: 'join', room: this.roomId, name: this.nickname });
+      const displayName = this.getDisplayName ? this.getDisplayName() : this.nickname;
+      this.send({ type: 'join', room: this.roomId, name: displayName });
     }
 
-    sendCursor(boardId, x, y, drawing) {
-      this._pendingCursor = { boardId, x, y, drawing: Boolean(drawing) };
+    sendCursor(boardId, x, y, drawing, extras) {
+      const extra = extras || {};
+      this._pendingCursor = {
+        boardId,
+        x,
+        y,
+        drawing: Boolean(drawing),
+        size: extra.size,
+        label_color: extra.label_color
+      };
       const now = performance.now();
       if (now - this._lastCursorSent < 1000 / CURSOR_HZ) return;
       this._flushCursor();
+    }
+
+    /** 上送联机展示偏好（他人看到的用户名与标签色）。 */
+    sendPlayerStyle(style) {
+      const payload = { type: 'player_style' };
+      if (style && typeof style === 'object') {
+        if (style.label_color != null) payload.label_color = style.label_color || '';
+        if (style.display_name != null) payload.display_name = String(style.display_name || '').trim();
+      } else {
+        payload.label_color = style || '';
+      }
+      this.send(payload);
     }
 
     _flushCursor() {
       if (!this._pendingCursor) return;
       const c = this._pendingCursor;
       this._lastCursorSent = performance.now();
-      this.send({
+      const payload = {
         type: 'cursor_move',
         board_id: c.boardId,
         x: c.x,
         y: c.y,
         drawing: c.drawing
-      });
+      };
+      if (c.size != null) payload.size = c.size;
+      if (c.label_color) payload.label_color = c.label_color;
+      this.send(payload);
     }
 
     _dispatch(data) {
@@ -229,6 +254,17 @@
         this.ws.close();
         this.ws = null;
       }
+    }
+
+    /** 房主：设置房客权限；target_id 省略则作用于全部房客。 */
+    sendHostPermissions(patch) {
+      const payload = Object.assign({ type: 'host_set_permissions' }, patch || {});
+      return this.send(payload);
+    }
+
+    /** 房主：踢出指定玩家。 */
+    kickPlayer(targetId) {
+      return this.send({ type: 'kick_player', target_id: String(targetId || '') });
     }
   }
 

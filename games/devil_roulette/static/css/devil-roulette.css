@@ -1,0 +1,272 @@
+:root {
+  --dr-bg: #0f0a0a;
+  --dr-panel: #1a1212;
+  --dr-border: #3d2020;
+  --dr-text: #f5e6e6;
+  --dr-accent: #c0392b;
+  --dr-accent-dim: #7a2419;
+  --dr-green: #2ecc71;
+  --dr-amber: #f39c12;
+}
+
+body {
+  background: var(--dr-bg);
+  color: var(--dr-text);
+  min-height: 100vh;
+}
+
+.dr-main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.join-screen, .lobby-screen, .game-screen {
+  display: block;
+}
+
+.hidden { display: none !important; }
+
+.join-card, .lobby-card, .game-card {
+  background: var(--dr-panel);
+  border: 1px solid var(--dr-border);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.join-card h1, .lobby-card h1, .game-card h1 {
+  margin: 0 0 8px;
+  font-size: 1.6rem;
+}
+
+.join-hint { opacity: 0.75; margin-bottom: 16px; }
+
+.join-room-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+input[type="text"] {
+  background: #120c0c;
+  border: 1px solid var(--dr-border);
+  color: var(--dr-text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.btn {
+  border: 1px solid var(--dr-border);
+  background: #241616;
+  color: var(--dr-text);
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: var(--dr-accent);
+  border-color: var(--dr-accent-dim);
+  width: 100%;
+}
+
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.join-error { color: #ff6b6b; min-height: 1.2em; }
+
+.room-badge {
+  display: inline-block;
+  background: #241616;
+  border: 1px solid var(--dr-border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.9rem;
+}
+
+#playerList {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+}
+
+#playerList li {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dr-border);
+}
+
+#playerList li.is-self { color: var(--dr-amber); }
+
+.lobby-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.status-text {
+  margin: 12px 0;
+  opacity: 0.85;
+  min-height: 1.2em;
+}
+
+.game-layout {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 768px) {
+  .game-layout {
+    grid-template-columns: 200px 1fr;
+  }
+}
+
+#gunCanvas {
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  background: #0a0606;
+  border: 1px solid var(--dr-border);
+  border-radius: 8px;
+  image-rendering: pixelated;
+}
+
+.hp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--dr-border);
+}
+
+.hp-row.eliminated { opacity: 0.4; text-decoration: line-through; }
+
+.candle {
+  display: inline-block;
+  width: 10px;
+  height: 18px;
+  margin-left: 4px;
+  background: #333;
+  border-radius: 2px 2px 4px 4px;
+  position: relative;
+}
+
+.candle.lit {
+  background: #f5f5f5;
+  box-shadow: 0 -4px 6px #f39c12;
+}
+
+.candle.lit::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  background: #f39c12;
+  border-radius: 50%;
+}
+
+#itemBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.item-btn {
+  background: #241616;
+  border: 1px solid var(--dr-border);
+  border-radius: 8px;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.item-btn canvas { display: block; image-rendering: pixelated; }
+
+#shootPanel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shoot-btn {
+  background: var(--dr-accent-dim);
+  border: 1px solid var(--dr-accent);
+  color: var(--dr-text);
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.shoot-btn.self {
+  background: #2c3e50;
+  border-color: #34495e;
+}
+
+#detectorToast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #241616;
+  border: 1px solid var(--dr-amber);
+  color: var(--dr-amber);
+  padding: 12px 20px;
+  border-radius: 8px;
+  z-index: 100;
+}
+
+#gameOverBanner {
+  background: var(--dr-accent);
+  color: #fff;
+  text-align: center;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 1.2rem;
+}
+
+.join-back {
+  display: inline-block;
+  margin-top: 16px;
+  color: var(--dr-text);
+  opacity: 0.7;
+}
+
+/* 贴图预览页 */
+.preview-grid {
+  display: grid;
+  gap: 24px;
+}
+
+.preview-section h2 { margin-bottom: 12px; }
+
+.preview-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.preview-item {
+  background: #120c0c;
+  border: 1px solid var(--dr-border);
+  border-radius: 8px;
+  padding: 8px;
+  text-align: center;
+}
+
+.preview-item canvas {
+  display: block;
+  image-rendering: pixelated;
+  margin: 0 auto 6px;
+}
+
+.preview-item span { font-size: 0.8rem; opacity: 0.8; }
+
+.preview-strip canvas {
+  max-width: 100%;
+  image-rendering: pixelated;
+  border: 1px solid var(--dr-border);
+}

@@ -140,9 +140,50 @@ def serialize_players(room: Dict) -> List[Dict[str, object]]:
             "is_host": pid == owner_id,
             "connected": pdata["connected"],
             "active_board_id": pdata.get("active_board_id", DEFAULT_BOARD_ID),
+            "label_color": str(pdata.get("label_color") or ""),
+            "can_draw": bool(pdata.get("can_draw", True)),
+            "can_save": bool(pdata.get("can_save", True)),
         }
         for pid, pdata in room["players"].items()
     ]
+
+
+def is_room_host(room: Dict, player_id: str) -> bool:
+    """判断玩家是否为当前房主。"""
+    return str(room.get("owner_id") or "") == str(player_id)
+
+
+def player_can_draw(room: Dict, player_id: str) -> bool:
+    """房主始终可画；房客读 can_draw。"""
+    if is_room_host(room, player_id):
+        return True
+    pdata = room.get("players", {}).get(player_id) or {}
+    return bool(pdata.get("can_draw", True))
+
+
+def player_can_save(room: Dict, player_id: str) -> bool:
+    """房主始终可保存；房客读 can_save。"""
+    if is_room_host(room, player_id):
+        return True
+    pdata = room.get("players", {}).get(player_id) or {}
+    return bool(pdata.get("can_save", True))
+
+
+def parse_display_name(value: object) -> str:
+    """校验合作画板显示名（客户端 join / player_style 上送）。"""
+    return str(value or "").strip()[:24]
+
+
+def parse_label_color(value: object) -> str:
+    """校验联机用户名标签底色（#RRGGBB）。"""
+    color = str(value or "").strip().lower()
+    if len(color) == 7 and color.startswith("#"):
+        try:
+            int(color[1:], 16)
+            return color
+        except ValueError:
+            return ""
+    return ""
 
 
 def players_on_board(room: Dict, board_id: str) -> Set[str]:
@@ -496,8 +537,8 @@ async def collab_websocket(websocket: WebSocket):
 
             if msg_type == "join":
                 requested_room_id = str(data.get("room", "")).strip()[:MAX_ROOM_ID_LENGTH].upper()
-                fallback_name = str(data.get("name", "")).strip()[:24]
-                display_name = passport_nickname or fallback_name
+                client_name = parse_display_name(data.get("name"))
+                display_name = client_name or passport_nickname
                 if not requested_room_id:
                     await send_error(websocket, "房间号不能为空")
                     continue
@@ -549,6 +590,12 @@ async def collab_websocket(websocket: WebSocket):
                     existing["ws"] = websocket
                     existing["connected"] = True
                     existing["disconnect_token"] = ""
+                    if "label_color" not in existing:
+                        existing["label_color"] = ""
+                    if "can_draw" not in existing:
+                        existing["can_draw"] = True
+                    if "can_save" not in existing:
+                        existing["can_save"] = True
                     if not existing.get("active_layer_id"):
                         existing["active_layer_id"] = DEFAULT_LAYER_ID
                     player_rooms[player_id] = room_id
@@ -556,7 +603,15 @@ async def collab_websocket(websocket: WebSocket):
                     if was_offline:
                         await broadcast(
                             room_id,
-                            {"type": "player_join", "player_id": player_id, "name": display_name},
+                            {
+                                "type": "player_join",
+                                "player_id": player_id,
+                                "name": display_name,
+                                "label_color": existing.get("label_color") or "",
+                                "can_draw": bool(existing.get("can_draw", True)),
+                                "can_save": bool(existing.get("can_save", True)),
+                                "is_host": is_room_host(room, player_id),
+                            },
                             exclude_id=player_id,
                         )
                     try:
@@ -576,6 +631,9 @@ async def collab_websocket(websocket: WebSocket):
                     "disconnect_token": "",
                     "active_board_id": DEFAULT_BOARD_ID,
                     "active_layer_id": DEFAULT_LAYER_ID,
+                    "label_color": "",
+                    "can_draw": True,
+                    "can_save": True,
                 }
                 player_rooms[player_id] = room_id
                 if room.get("owner_id") is None:
@@ -583,7 +641,15 @@ async def collab_websocket(websocket: WebSocket):
                 await send_json(websocket, build_room_state(room, player_id, include_strokes=True))
                 await broadcast(
                     room_id,
-                    {"type": "player_join", "player_id": player_id, "name": display_name},
+                    {
+                        "type": "player_join",
+                        "player_id": player_id,
+                        "name": display_name,
+                        "label_color": "",
+                        "can_draw": True,
+                        "can_save": True,
+                        "is_host": is_room_host(room, player_id),
+                    },
                     exclude_id=player_id,
                 )
                 continue
@@ -828,7 +894,74 @@ async def collab_websocket(websocket: WebSocket):
                 )
                 continue
 
+            if msg_type == "host_set_permissions":
+                if not is_room_host(room, player_id):
+                    await send_error(websocket, "仅房主可修改权限")
+                    continue
+                target_id = str(data.get("target_id") or "").strip()
+                can_draw = data.get("can_draw")
+                can_save = data.get("can_save")
+                targets: List[str] = []
+                if target_id:
+                    if target_id not in room["players"]:
+                        await send_error(websocket, "目标玩家不在房间")
+                        continue
+                    if is_room_host(room, target_id):
+                        await send_error(websocket, "无法修改房主权限")
+                        continue
+                    targets = [target_id]
+                else:
+                    targets = [
+                        pid for pid in room["players"]
+                        if not is_room_host(room, pid)
+                    ]
+                for tid in targets:
+                    tp = room["players"][tid]
+                    if can_draw is not None:
+                        tp["can_draw"] = bool(can_draw)
+                    if can_save is not None:
+                        tp["can_save"] = bool(can_save)
+                    await broadcast(
+                        room_id,
+                        {
+                            "type": "player_permissions",
+                            "player_id": tid,
+                            "can_draw": bool(tp.get("can_draw", True)),
+                            "can_save": bool(tp.get("can_save", True)),
+                        },
+                    )
+                continue
+
+            if msg_type == "kick_player":
+                if not is_room_host(room, player_id):
+                    await send_error(websocket, "仅房主可踢出玩家")
+                    continue
+                target_id = str(data.get("target_id") or "").strip()
+                if not target_id or target_id not in room["players"]:
+                    await send_error(websocket, "目标玩家不在房间")
+                    continue
+                if target_id == player_id:
+                    await send_error(websocket, "无法踢出自己")
+                    continue
+                target = room["players"][target_id]
+                target_ws = target.get("ws")
+                if target_ws:
+                    try:
+                        await send_json(
+                            target_ws,
+                            {"type": "room_removed", "message": "你已被房主移出房间"},
+                        )
+                        await target_ws.close(code=4003)
+                    except Exception:
+                        pass
+                await remove_player_from_room(
+                    room_id, target_id, f"{target.get('name', '玩家')} 已被移出房间"
+                )
+                continue
+
             if msg_type in {"draw", "draw_batch"}:
+                if not player_can_draw(room, player_id):
+                    continue
                 board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
                 board = get_board(room, board_id)
                 if not board:
@@ -890,6 +1023,8 @@ async def collab_websocket(websocket: WebSocket):
                 continue
 
             if msg_type in {"undo", "redo"}:
+                if not player_can_draw(room, player_id):
+                    continue
                 board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
                 board = get_board(room, board_id)
                 if not board:
@@ -916,6 +1051,8 @@ async def collab_websocket(websocket: WebSocket):
                 continue
 
             if msg_type == "clear":
+                if not player_can_draw(room, player_id):
+                    continue
                 board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
                 board = get_board(room, board_id)
                 if not board:
@@ -927,6 +1064,23 @@ async def collab_websocket(websocket: WebSocket):
                 await broadcast_to_board(room_id, board_id, clear_msg)
                 continue
 
+            if msg_type == "player_style":
+                label_color = parse_label_color(data.get("label_color"))
+                pdata["label_color"] = label_color
+                display_name = parse_display_name(data.get("display_name"))
+                if display_name:
+                    pdata["name"] = display_name
+                await broadcast(
+                    room_id,
+                    {
+                        "type": "player_style",
+                        "player_id": player_id,
+                        "name": pdata["name"],
+                        "label_color": label_color,
+                    },
+                )
+                continue
+
             if msg_type == "cursor_move":
                 board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
                 try:
@@ -935,6 +1089,13 @@ async def collab_websocket(websocket: WebSocket):
                 except (TypeError, ValueError):
                     continue
                 drawing = bool(data.get("drawing"))
+                try:
+                    size = max(1, min(64, int(data.get("size", 0))))
+                except (TypeError, ValueError):
+                    size = 0
+                wire_color = parse_label_color(data.get("label_color"))
+                if wire_color:
+                    pdata["label_color"] = wire_color
                 await broadcast_to_board(
                     room_id,
                     board_id,
@@ -946,6 +1107,8 @@ async def collab_websocket(websocket: WebSocket):
                         "x": x,
                         "y": y,
                         "drawing": drawing,
+                        "size": size,
+                        "label_color": pdata.get("label_color") or "",
                     },
                     exclude_id=player_id,
                 )

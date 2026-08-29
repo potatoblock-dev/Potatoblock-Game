@@ -49,6 +49,17 @@
               </div>
             </div>
             <button type="button" id="copyLinkBtn" class="ws-btn" data-tooltip="复制房间链接"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">link</span>复制链接</button>
+            <button
+              type="button"
+              id="collabFullscreenBtn"
+              class="ws-btn ws-btn-icon-only collab-desktop-only"
+              data-tooltip="全屏"
+              aria-pressed="false"
+              aria-label="全屏"
+              title="全屏 (F11)"
+            >
+              <span id="collabFullscreenIcon" class="material-symbols-outlined ws-btn-icon" aria-hidden="true">fullscreen</span>
+            </button>
             <button type="button" id="settingsToggleBtn" class="ws-btn ws-btn-icon-only" data-tooltip="设置" aria-label="设置">
               <span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">settings</span>
             </button>
@@ -80,7 +91,10 @@
               <div class="ws-panel-body">
                 <div id="colorPickerMount"></div>
                 <div class="tool-opts">
-                  <label>粗细 <input id="brushSize" type="range" min="1" max="64" value="8"></label>
+                  <label class="brush-size-row">
+                    <span class="brush-size-label">粗细</span>
+                    <input id="brushSize" type="range" min="1" max="64" value="8">
+                  </label>
                 </div>
               </div>
             </div>
@@ -125,6 +139,7 @@
           <button type="button" class="settings-modal-tab is-active" data-settings-tab="general">常规</button>
           <button type="button" class="settings-modal-tab" data-settings-tab="peripheral">外设</button>
           <button type="button" class="settings-modal-tab" data-settings-tab="shortcuts">快捷键</button>
+          <button type="button" class="settings-modal-tab" data-settings-tab="online">联机</button>
           <button type="button" class="settings-modal-tab" data-settings-tab="network">网络</button>
         </div>
         <div class="settings-modal-body">
@@ -144,6 +159,16 @@
             <label class="settings-row">
               <span class="settings-row-label">最近色数量</span>
               <input id="settingsRecentLimit" class="settings-select" type="number" min="2" max="24" step="1" value="12">
+            </label>
+            <label class="settings-row">
+              <span class="settings-row-label">填充容差</span>
+              <input id="settingsFillTolerance" type="range" min="0" max="64" step="1" value="20">
+              <output id="settingsFillToleranceOut">20</output>
+            </label>
+            <label class="settings-row">
+              <span class="settings-row-label">魔棒容差</span>
+              <input id="settingsWandTolerance" type="range" min="0" max="64" step="1" value="20">
+              <output id="settingsWandToleranceOut">20</output>
             </label>
           </div>
           <div class="settings-modal-pane" data-settings-pane="peripheral">
@@ -166,6 +191,27 @@
             <p class="settings-hint" data-shortcut-status>点击键位后按下新的组合键</p>
             <button type="button" class="settings-action-btn" data-shortcut-reset>恢复默认快捷键</button>
           </div>
+          <div class="settings-modal-pane" data-settings-pane="online">
+            <p class="settings-hint">以下设置仅在本合作画板内生效，并保存在本机浏览器。</p>
+            <label class="settings-row settings-row-check">
+              <input id="settingsOnlineUsePassportName" type="checkbox" checked>
+              <span>使用通行证用户名</span>
+            </label>
+            <label class="settings-row">
+              <span class="settings-row-label">自定义名</span>
+              <input id="settingsOnlineDisplayName" class="settings-text-input" type="text" maxlength="24" placeholder="合作画板专用昵称" autocomplete="off">
+            </label>
+            <p class="settings-hint">关闭「使用通行证用户名」后，将显示上方自定义名称。</p>
+            <label class="settings-row">
+              <span class="settings-row-label">标签底色</span>
+              <input id="settingsOnlineLabelColor" type="color" value="#3b82f6">
+              <button type="button" id="settingsOnlineLabelReset" class="settings-action-btn">恢复默认</button>
+            </label>
+            <div class="online-label-preview-wrap">
+              <span class="settings-row-label">预览</span>
+              <span id="settingsOnlineLabelPreview" class="online-label-preview">你的昵称</span>
+            </div>
+          </div>
           <div class="settings-modal-pane" data-settings-pane="network">
             <div class="network-row"><span class="network-label">连接状态</span><span data-net-status>—</span></div>
             <div class="network-row"><span class="network-label">房间号</span><span data-net-room>—</span></div>
@@ -175,6 +221,32 @@
             <button type="button" class="settings-action-btn" data-net-test>检测连接</button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="roomPanelModal" class="room-panel-modal hidden" role="dialog" aria-modal="true" aria-labelledby="roomPanelTitle">
+    <div class="room-panel-backdrop" data-room-panel-backdrop>
+      <div class="room-panel-panel">
+        <header class="room-panel-header">
+          <div class="room-panel-header-main">
+            <h2 id="roomPanelTitle">房间成员</h2>
+            <p class="room-panel-hint">按 <kbd>Tab</kbd> 开关 · 你的延迟 <span data-room-self-rtt>—</span></p>
+          </div>
+          <button type="button" class="room-panel-close" data-room-panel-close aria-label="关闭">
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+          </button>
+        </header>
+        <div class="room-panel-batch hidden" data-room-batch-bar>
+          <span class="room-panel-batch-label">批量</span>
+          <div class="room-panel-batch-actions">
+            <button type="button" class="room-batch-btn" data-room-batch data-batch-draw="1">全开绘画</button>
+            <button type="button" class="room-batch-btn" data-room-batch data-batch-draw="0">全禁绘画</button>
+            <button type="button" class="room-batch-btn" data-room-batch data-batch-save="1">全开保存</button>
+            <button type="button" class="room-batch-btn" data-room-batch data-batch-save="0">全禁保存</button>
+          </div>
+        </div>
+        <div class="room-player-list" data-room-player-list></div>
       </div>
     </div>
   </div>
@@ -190,6 +262,8 @@
   <script src="/static/games/collab-canvas/js/collab-board-adapter.js"></script>
   <script src="/static/games/collab-canvas/js/pen-input.js"></script>
   <script src="/static/games/collab-canvas/js/pen-test-pad.js"></script>
+  <script src="/static/games/collab-canvas/js/online-prefs.js"></script>
+  <script src="/static/games/collab-canvas/js/brush-preview.js"></script>
   <script src="/static/games/collab-canvas/js/cursor-overlay.js"></script>
   <script src="/static/games/collab-canvas/js/canvas-viewport.js"></script>
   <script src="/static/games/collab-canvas/js/color-math.js"></script>
@@ -198,6 +272,12 @@
   <script src="/static/games/collab-canvas/js/color-picker.js"></script>
   <script src="/static/games/collab-canvas/js/color-pair-state.js"></script>
   <script src="/static/games/collab-canvas/js/recent-colors.js"></script>
+  <script src="/static/games/collab-canvas/js/tool-registry.js"></script>
+  <script src="/static/games/collab-canvas/js/tool-variant-store.js"></script>
+  <script src="/static/games/collab-canvas/js/tool-controller.js"></script>
+  <script src="/static/games/collab-canvas/js/canvas-overlay.js"></script>
+  <script src="/static/games/collab-canvas/js/selection-manager.js"></script>
+  <script src="/static/games/collab-canvas/js/tools/register-tools.js"></script>
   <script src="/static/games/collab-canvas/js/ui-tooltip.js"></script>
   <script src="/static/games/collab-canvas/js/material-icons.js"></script>
   <script src="/static/games/collab-canvas/js/workspace-layout.js"></script>
@@ -213,6 +293,9 @@
   <script src="/static/games/collab-canvas/js/network-monitor.js"></script>
   <script src="/static/games/collab-canvas/js/settings-panel.js"></script>
   <script src="/static/games/collab-canvas/js/collab-session.js"></script>
+  <script src="/static/games/collab-canvas/js/collab-fullscreen.js"></script>
+  <script src="/static/games/collab-canvas/js/canvas-watermark.js"></script>
+  <script src="/static/games/collab-canvas/js/room-panel.js"></script>
   <script src="/static/games/collab-canvas/js/collab-board.js"></script>
   <script src="/static/games/collab-canvas/js/collab-app.js"></script>
 </body>

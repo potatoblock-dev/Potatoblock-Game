@@ -20,8 +20,36 @@
     URL.revokeObjectURL(url);
   }
 
+  /** 在 RGBA 像素上绘制重复水印文字。 */
+  function applyWatermark(rgba, width, height, text) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(width, height);
+    imageData.data.set(rgba);
+    ctx.putImageData(imageData, 0, 0);
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#111827';
+    ctx.font = 'bold ' + Math.max(14, Math.round(width / 48)) + 'px sans-serif';
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate(-Math.PI / 6);
+    const label = String(text || '预览');
+    const stepY = Math.max(48, Math.round(height / 8));
+    const stepX = Math.max(120, Math.round(width / 5));
+    for (let y = -height; y < height; y += stepY) {
+      for (let x = -width; x < width; x += stepX) {
+        ctx.fillText(label, x, y);
+      }
+    }
+    ctx.restore();
+    return new Uint8ClampedArray(ctx.getImageData(0, 0, width, height).data);
+  }
+
   /** 从 strokes 按图层合成渲染 RGBA 像素。 */
-  async function strokesToRgba(strokes, canvasSpec, layersMeta) {
+  async function strokesToRgba(strokes, canvasSpec, layersMeta, options) {
+    const opts = options || {};
     const spec = canvasSpec || {};
     const width = Number(spec.width) || 960;
     const height = Number(spec.height) || 540;
@@ -36,8 +64,12 @@
       : [{ layer_id: 'l_default', name: '图层 1', visible: true, opacity: 255, order: 0 }];
     board.redraw(DrawingBoard.cloneStrokes(strokes || []), layers);
     const ctx = board.canvas.getContext('2d');
+    let rgba = new Uint8ClampedArray(ctx.getImageData(0, 0, width, height).data);
+    if (opts.watermarkText) {
+      rgba = applyWatermark(rgba, width, height, opts.watermarkText);
+    }
     return {
-      rgba: new Uint8ClampedArray(ctx.getImageData(0, 0, width, height).data),
+      rgba,
       width,
       height,
       layers
@@ -150,8 +182,9 @@
       const spec = (boardMeta && boardMeta.canvas) || {};
       const layers = (boardMeta && boardMeta.layers) || [];
       const title = (boardMeta && boardMeta.title) || '画板';
+      const exportOpts = (boardMeta && boardMeta.exportOptions) || {};
       if (formatId === 'kra') {
-        const { rgba, width, height } = await strokesToRgba(strokes, spec, layers);
+        const { rgba, width, height } = await strokesToRgba(strokes, spec, layers, exportOpts);
         return format.encode(rgba, width, height, {
           title,
           docName: sanitizeFilename(title),
@@ -160,7 +193,7 @@
           layers
         });
       }
-      const { rgba, width, height } = await strokesToRgba(strokes, spec, layers);
+      const { rgba, width, height } = await strokesToRgba(strokes, spec, layers, exportOpts);
       return format.encode(rgba, width, height, {
         title,
         docName: sanitizeFilename(title),

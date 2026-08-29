@@ -36,6 +36,20 @@
       this.resetViewBtn = this.modal && this.modal.querySelector('#settingsResetView');
       this.recentOrderSelect = this.modal && this.modal.querySelector('#settingsRecentOrder');
       this.recentLimitInput = this.modal && this.modal.querySelector('#settingsRecentLimit');
+      this.fillToleranceInput = this.modal && this.modal.querySelector('#settingsFillTolerance');
+      this.fillToleranceOut = this.modal && this.modal.querySelector('#settingsFillToleranceOut');
+      this.wandToleranceInput = this.modal && this.modal.querySelector('#settingsWandTolerance');
+      this.wandToleranceOut = this.modal && this.modal.querySelector('#settingsWandToleranceOut');
+      this.getDrawingBoard = settings.getDrawingBoard || (() => null);
+      this.getBoardController = settings.getBoardController || (() => null);
+      this.onlinePrefs = settings.onlinePrefs || null;
+      this.session = settings.session || null;
+      this.getNickname = settings.getNickname || (() => '玩家');
+      this.displayNameInput = this.modal && this.modal.querySelector('#settingsOnlineDisplayName');
+      this.usePassportToggle = this.modal && this.modal.querySelector('#settingsOnlineUsePassportName');
+      this.labelColorInput = this.modal && this.modal.querySelector('#settingsOnlineLabelColor');
+      this.labelColorReset = this.modal && this.modal.querySelector('#settingsOnlineLabelReset');
+      this.labelPreview = this.modal && this.modal.querySelector('#settingsOnlineLabelPreview');
       this.shortcutList = this.modal && this.modal.querySelector('[data-shortcut-list]');
       this.shortcutStatus = this.modal && this.modal.querySelector('[data-shortcut-status]');
       this.shortcutResetBtn = this.modal && this.modal.querySelector('[data-shortcut-reset]');
@@ -52,6 +66,7 @@
       this._bindTabs();
       this._bindGeneral();
       this._bindPeripheral();
+      this._bindOnline();
       this._renderShortcuts();
       if (this.shortcutResetBtn) {
         this.shortcutResetBtn.addEventListener('click', () => {
@@ -169,6 +184,98 @@
       if (this.resetViewBtn && this.viewport) {
         this.resetViewBtn.addEventListener('click', () => {
           this.viewport.resetView();
+        });
+      }
+      const board = this.getDrawingBoard();
+      if (this.fillToleranceInput && board) {
+        this.fillToleranceInput.value = String(board.fillTolerance);
+        if (this.fillToleranceOut) this.fillToleranceOut.textContent = String(board.fillTolerance);
+        this.fillToleranceInput.addEventListener('input', () => {
+          board.fillTolerance = Number(this.fillToleranceInput.value) || 20;
+          if (this.fillToleranceOut) this.fillToleranceOut.textContent = String(board.fillTolerance);
+        });
+      }
+      const controller = this.getBoardController();
+      if (this.wandToleranceInput && controller) {
+        this.wandToleranceInput.value = String(controller.wandTolerance);
+        if (this.wandToleranceOut) this.wandToleranceOut.textContent = String(controller.wandTolerance);
+        this.wandToleranceInput.addEventListener('input', () => {
+          controller.wandTolerance = Number(this.wandToleranceInput.value) || 20;
+          if (this.wandToleranceOut) this.wandToleranceOut.textContent = String(controller.wandTolerance);
+        });
+      }
+    }
+
+    /** 联机 Tab：显示名称、标签底色与预览。 */
+    _bindOnline() {
+      if (!this.onlinePrefs) return;
+      const syncPreview = () => {
+        if (!this.labelPreview) return;
+        const stored = this.onlinePrefs.getLabelColor();
+        const labelColor = stored || defaultLabelColor('self-preview');
+        this.labelPreview.textContent = this.onlinePrefs.resolveDisplayName(this.getNickname());
+        this.labelPreview.style.background = labelColor;
+        this.labelPreview.style.color = contrastText(labelColor);
+      };
+      const syncNameControls = () => {
+        const usePassport = this.onlinePrefs.getUsePassportName();
+        if (this.usePassportToggle) this.usePassportToggle.checked = usePassport;
+        if (this.displayNameInput) {
+          this.displayNameInput.value = this.onlinePrefs.getCustomDisplayName();
+          this.displayNameInput.disabled = usePassport;
+        }
+        syncPreview();
+      };
+      const pushStyle = () => {
+        if (!this.session) return;
+        this.session.sendPlayerStyle({
+          label_color: this.onlinePrefs.getWireLabelColor(),
+          display_name: this.onlinePrefs.resolveDisplayName(this.getNickname())
+        });
+      };
+      const applyStored = () => {
+        const stored = this.onlinePrefs.getLabelColor();
+        if (this.labelColorInput) {
+          this.labelColorInput.value = stored || '#3b82f6';
+        }
+        syncNameControls();
+      };
+      applyStored();
+      if (this.usePassportToggle) {
+        this.usePassportToggle.addEventListener('change', () => {
+          this.onlinePrefs.setUsePassportName(this.usePassportToggle.checked);
+          syncNameControls();
+          pushStyle();
+        });
+      }
+      if (this.displayNameInput) {
+        this.displayNameInput.addEventListener('input', () => {
+          if (this.labelPreview) {
+            const usePassport = this.usePassportToggle && this.usePassportToggle.checked;
+            const previewName = usePassport
+              ? this.onlinePrefs.resolveDisplayName(this.getNickname())
+              : (this.displayNameInput.value.trim() || this.getNickname() || '玩家');
+            this.labelPreview.textContent = previewName;
+          }
+        });
+        this.displayNameInput.addEventListener('change', () => {
+          this.onlinePrefs.setCustomDisplayName(this.displayNameInput.value);
+          syncNameControls();
+          pushStyle();
+        });
+      }
+      if (this.labelColorInput) {
+        this.labelColorInput.addEventListener('input', () => {
+          this.onlinePrefs.setLabelColor(this.labelColorInput.value);
+          syncPreview();
+          pushStyle();
+        });
+      }
+      if (this.labelColorReset) {
+        this.labelColorReset.addEventListener('click', () => {
+          this.onlinePrefs.resetLabelColor();
+          applyStored();
+          pushStyle();
         });
       }
     }

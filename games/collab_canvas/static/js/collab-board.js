@@ -8,6 +8,7 @@
     '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'
   ];
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const BRUSH_TOOLS = new Set(['brush', 'eraser']);
 
   /** 画板绘制生命周期：本地优先 + 联机同步。 */
   class CollabBoardController {
@@ -26,6 +27,7 @@
       this.popupPalette = settings.popupPalette || null;
       this.recentColors = settings.recentColors || null;
       this.penInput = settings.penInput;
+      this.onlinePrefs = settings.onlinePrefs || null;
       this.onRoomChange = settings.onRoomChange || (() => {});
 
       this.drawingBoard = new DrawingBoard(this.canvas, { width: 960, height: 540 });
@@ -43,6 +45,8 @@
       this.boardsMeta = [];
       this.boardOrder = [];
       this.ownerId = '';
+      this.canDraw = true;
+      this.canSave = true;
       this.isDrawing = false;
       this.activeStrokeId = '';
       this.activeStrokeTool = null;
@@ -51,20 +55,57 @@
       this.currentTool = 'brush';
       this.currentColor = this.colorPair ? this.colorPair.foreground : '#111827';
       this.currentSize = 8;
+      this.wandTolerance = 20;
       this.exportRegistry = new CollabExportRegistry();
       this._exportBusy = false;
       this._roomActions = settings.roomActions || {};
+      this._spaceToolPrev = null;
+      this._handPanning = false;
+      this._handLast = null;
+
+      this.toolController = new ToolController();
+      this.toolController.attachBoard(this);
+      this.canvasOverlay = new CanvasOverlay(null, this.drawingBoard);
+      if (this.stage) {
+        const surface = this.stage.querySelector('.canvas-stage-surface') || document.getElementById('canvasStageSurface');
+        if (surface) this.canvasOverlay.attachToSurface(surface);
+      }
+      this.selectionManager = new SelectionManager(this, this.canvasOverlay);
+      if (typeof registerCollabTools === 'function') {
+        registerCollabTools(this.toolController, this);
+      }
+
+      const cursorLayer = document.getElementById('cursorLayer');
+      this.brushPreview = new BrushPreview(cursorLayer, {
+        getCanvas: () => this.canvas,
+        getLogicalWidth: () => this.drawingBoard.logicalWidth,
+        getBrushSize: () => this.currentSize,
+        getTool: () => this.currentTool,
+        isVisible: () => !this.isDrawing || BRUSH_TOOLS.has(this.currentTool)
+      });
+
+      const stageSurface = this.stage && (
+        this.stage.querySelector('.canvas-stage-surface') || document.getElementById('canvasStageSurface')
+      );
+      this.canvasWatermark = stageSurface ? new CanvasWatermark(stageSurface, {
+        getText: () => {
+          const room = this.session && this.session.roomId ? this.session.roomId : '';
+          return (room ? room + ' · ' : '') + '预览 · 禁止保存';
+        }
+      }) : null;
 
       this._bindPointer();
       this._bindToolbar();
       this._bindVisibility();
       this._bindStageResize();
+      this._bindToolKeys();
     }
 
     /** 舞台尺寸变化时重新 fit，保证视口灰色 letterbox 正确。 */
     _bindStageResize() {
       this._refitCanvas = () => {
         if (this.stage) this.drawingBoard.fitToStage(this.stage);
+        this._refreshBrushSizePreview();
       };
       window.addEventListener('resize', this._refitCanvas);
       if (this.stage && typeof ResizeObserver !== 'undefined') {
@@ -97,12 +138,15 @@
       const id = String(actionId || '');
       switch (id) {
         case 'undo':
+          if (!this.canDraw) return;
           this.adapter.sendHistoryAction('undo');
           return;
         case 'redo':
+          if (!this.canDraw) return;
           this.adapter.sendHistoryAction('redo');
           return;
         case 'clearLayer':
+          if (!this.canDraw) return;
           if (confirm('清空当前图层？')) this.adapter.sendHistoryAction('clear');
           return;
         case 'toolBrush':
@@ -113,6 +157,24 @@
           return;
         case 'toolZoom':
           this._setTool('zoom');
+          return;
+        case 'toolFill':
+          this._setTool('fillBucket');
+          return;
+        case 'toolLine':
+          this._setTool('line');
+          return;
+        case 'toolEyedropper':
+          this._setTool('eyedropper');
+          return;
+        case 'toolHand':
+          this._setTool('hand');
+          return;
+        case 'selectionDelete':
+          if (this.selectionManager) this.selectionManager.deleteSelection();
+          return;
+        case 'selectionFill':
+          if (this.selectionManager) this.selectionManager.fillSelection(this.currentColor);
           return;
         case 'brushSizeUp':
           this._adjustBrushSize(1);
@@ -170,12 +232,15 @@
           this._stepBoard(1);
           return;
         case 'exportPng':
+          if (!this.canSave) return;
           this.exportAllBoards('png');
           return;
         case 'exportJpeg':
+          if (!this.canSave) return;
           this.exportAllBoards('jpeg');
           return;
         case 'exportKra':
+          if (!this.canSave) return;
           this.exportAllBoards('kra');
           return;
         case 'copyLink':
@@ -201,9 +266,76 @@
     }
 
     _setTool(toolId) {
-      this.currentTool = toolId;
-      if (this.toolRail) this.toolRail.setTool(toolId);
-      if (this.stage) this.stage.dataset.tool = toolId;
+      const resolved = ToolRegistry.resolveTool(toolId, this.toolRail ? this.toolRail.variantStore : null);
+      const prev = this.currentTool;
+      this.currentTool = resolved;
+      if (this.toolRail) this.toolRail.setTool(resolved, { silent: true });
+      if (this.stage) {
+        this.stage.dataset.tool = resolved;
+        this._applyToolCursor(resolved);
+      }
+      if (this.brushPreview && !BRUSH_TOOLS.has(resolved)) this.brushPreview.hide();
+      if (this.selectionManager && (String(resolved).startsWith('select') || resolved === 'magicWand')) {
+        this.selectionManager.setMode(resolved);
+      } else if (this.selectionManager && prev !== resolved) {
+        this.selectionManager.clear();
+      }
+    }
+
+    /** 返回当前工具应对应的 CSS 光标。 */
+    _toolCursor(toolId) {
+      const id = String(toolId || '');
+      const map = {
+        hand: 'grab',
+        eyedropper: 'crosshair',
+        fillBucket: 'cell',
+        fillGradient: 'crosshair',
+        zoom: 'zoom-in',
+        line: 'crosshair',
+        brush: 'none',
+        eraser: 'none'
+      };
+      if (map[id]) return map[id];
+      if (id.startsWith('select') || id === 'magicWand') return 'crosshair';
+      if (id.startsWith('rect') || id.startsWith('ellipse')) return 'crosshair';
+      return 'default';
+    }
+
+    /** 按当前工具设置舞台与画布光标。 */
+    _applyToolCursor(toolId) {
+      const cursor = this._toolCursor(toolId);
+      if (this.stage) this.stage.style.cursor = cursor === 'none' ? '' : cursor;
+      if (this.canvas) this.canvas.style.cursor = cursor;
+    }
+
+    /** Space 按住临时抓手；Delete 清除选区。 */
+    _bindToolKeys() {
+      document.addEventListener('keydown', event => {
+        if (event.target && event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+        if (event.code === 'Space' && !event.repeat && this._spaceToolPrev == null) {
+          event.preventDefault();
+          this._spaceToolPrev = this.currentTool;
+          this._setTool('hand');
+        }
+        if (event.key === 'Delete' || event.key === 'Backspace') {
+          if (this.selectionManager && this.selectionManager.isActive()) {
+            event.preventDefault();
+            this.selectionManager.deleteSelection();
+          }
+        }
+        if (event.key === 'Escape') {
+          if (this.selectionManager) this.selectionManager.clear();
+          if (this.canvasOverlay) this.canvasOverlay.clear();
+        }
+      });
+      document.addEventListener('keyup', event => {
+        if (event.code === 'Space' && this._spaceToolPrev != null) {
+          event.preventDefault();
+          const prev = this._spaceToolPrev;
+          this._spaceToolPrev = null;
+          this._setTool(prev);
+        }
+      });
     }
 
     _adjustBrushSize(delta) {
@@ -211,6 +343,23 @@
       const next = clamp(this.currentSize + delta, BRUSH_MIN, BRUSH_MAX);
       this.currentSize = next;
       if (sizeInput) sizeInput.value = String(next);
+      if (this.brushPreview) {
+        this.brushPreview.showAtCenter();
+        clearTimeout(this._brushPreviewHideTimer);
+        this._brushPreviewHideTimer = setTimeout(() => this._hideBrushSizePreview(), 700);
+      }
+    }
+
+    /** 滑块拖动时在画布中心刷新笔刷空心圆。 */
+    _refreshBrushSizePreview() {
+      const sizeInput = document.getElementById('brushSize');
+      if (sizeInput && document.activeElement === sizeInput && this.brushPreview) {
+        this.brushPreview.showAtCenter({ pinned: true });
+      }
+    }
+
+    _hideBrushSizePreview() {
+      if (this.brushPreview) this.brushPreview.hide();
     }
 
     _zoomAtCenter(zoomIn) {
@@ -251,6 +400,7 @@
     handleRoomState(data) {
       this.selfId = data.self_id || this.selfId;
       this.ownerId = data.owner_id || '';
+      this._applySelfPermissions(data.players, data.self_id);
       this.activeBoardId = data.active_board_id || 'b_default';
       this.activeLayerId = data.active_layer_id || 'l_default';
       this.layersMeta = data.layers || [{ layer_id: 'l_default', name: '图层 1', visible: true, opacity: 255, locked: false, order: 0 }];
@@ -267,6 +417,57 @@
       }
       this.onRoomChange(data);
       this._updateMemberCount(data.players);
+      this.setPlayersSnapshot(data.players);
+    }
+
+    /** 从 players 列表同步本客户端绘画/保存权限并更新 UI。 */
+    _applySelfPermissions(players, selfId) {
+      const id = selfId || this.selfId;
+      const row = (players || []).find(p => p.uid === id);
+      const isHost = id && this.ownerId && id === this.ownerId;
+      this.canDraw = isHost || row == null || row.can_draw !== false;
+      this.canSave = isHost || row == null || row.can_save !== false;
+      this._syncPermissionUi();
+    }
+
+    handlePlayerPermissions(data) {
+      const list = this.getPlayersSnapshot().slice();
+      const idx = list.findIndex(p => p.uid === data.player_id);
+      if (idx >= 0) {
+        list[idx] = Object.assign({}, list[idx], {
+          can_draw: data.can_draw,
+          can_save: data.can_save
+        });
+        this.setPlayersSnapshot(list);
+      }
+      if (data.player_id === this.selfId) {
+        if (data.can_draw != null) this.canDraw = !!data.can_draw;
+        if (data.can_save != null) this.canSave = !!data.can_save;
+        this._syncPermissionUi();
+      }
+    }
+
+    /** 禁用/启用水印、导出与绘制相关控件。 */
+    _syncPermissionUi() {
+      if (this.canvasWatermark) this.canvasWatermark.setActive(this.canSave);
+      if (this.stage) {
+        this.stage.classList.toggle('is-readonly', !this.canDraw);
+        this.stage.classList.toggle('is-save-blocked', !this.canSave);
+      }
+      const exportToggle = document.getElementById('exportToggleBtn');
+      if (exportToggle) exportToggle.disabled = !this.canSave;
+      const clearBtn = document.getElementById('clearBtn');
+      if (clearBtn) clearBtn.disabled = !this.canDraw;
+      if (!this.canDraw && this.brushPreview) this.brushPreview.hide();
+    }
+
+    /** 供 RoomPanel 读取最新成员列表。 */
+    getPlayersSnapshot() {
+      return this._playersSnapshot || [];
+    }
+
+    setPlayersSnapshot(players) {
+      this._playersSnapshot = Array.isArray(players) ? players.slice() : [];
     }
 
     handleDrawingSync(data) {
@@ -460,6 +661,11 @@
     /** 收集全部画板 strokes 并批量导出（每画板一个文件）。 */
     async exportAllBoards(formatId) {
       if (this._exportBusy) return;
+      if (!this.canSave) {
+        const statusEl = document.getElementById('statusText');
+        if (statusEl) statusEl.textContent = '房主已关闭你的保存权限';
+        return;
+      }
       this._exportBusy = true;
       const statusEl = document.getElementById('statusText');
       const setStatus = text => { if (statusEl) statusEl.textContent = text || ''; };
@@ -488,7 +694,15 @@
             canvas = sync.canvas || canvas;
           }
           boards.push({
-            meta: { board_id: boardId, title: meta.title, canvas, layers },
+            meta: {
+              board_id: boardId,
+              title: meta.title,
+              canvas,
+              layers,
+              exportOptions: this.canSave ? {} : {
+                watermarkText: `${this.session.roomId || 'room'} · 预览`
+              }
+            },
             strokes
           });
         }
@@ -496,7 +710,8 @@
         setStatus(`正在导出 ${boards.length} 个文件…`);
         await this.exportRegistry.exportBoards(formatId, boards, {
           roomId: this.session.roomId || 'room',
-          delayMs: 150
+          delayMs: 150,
+          watermarkText: this.canSave ? null : `${this.session.roomId || 'room'} · 预览`
         });
         setStatus(`已导出 ${boards.length} 个文件`);
       } catch (err) {
@@ -510,6 +725,21 @@
       const tool = data.tool || 'brush';
       if (tool === 'background') return { tool, color: data.color };
       if (tool === 'fill') return { tool, color: data.color, x: data.x, y: data.y };
+      if (tool === 'gradient') {
+        return {
+          tool,
+          x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2,
+          color: data.color, color2: data.color2
+        };
+      }
+      if (tool === 'line' || tool === 'rect' || tool === 'ellipse') {
+        const segment = {
+          x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2,
+          color: data.color, size: data.size, tool
+        };
+        if (tool === 'rect' || tool === 'ellipse') segment.filled = !!data.filled;
+        return segment;
+      }
       return {
         x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2,
         color: data.color, size: data.size, tool
@@ -523,9 +753,26 @@
     }
 
     _appendLocalSegment(strokeId, segment) {
+      if (!this.canDraw && segment.tool !== 'localRaster') return;
       this.drawingBoard.appendSegment(this.strokes, this.selfId, strokeId, segment, this.activeLayerId);
       this.drawingBoard.drawSegment(segment);
-      this.adapter.sendSegment(strokeId, segment);
+      if (segment.tool !== 'localRaster') {
+        this.adapter.sendSegment(strokeId, segment);
+      }
+    }
+
+    /** 构造 cursor_move 附加字段（笔刷大小与标签色）。 */
+    _cursorExtras() {
+      const extras = {};
+      if (BRUSH_TOOLS.has(this.currentTool) || this.isDrawing) {
+        extras.size = this.currentSize;
+      }
+      if (this.onlinePrefs) extras.label_color = this.onlinePrefs.getWireLabelColor();
+      return extras;
+    }
+
+    _sendCursor(boardId, x, y, drawing) {
+      this.session.sendCursor(boardId, x, y, drawing, this._cursorExtras());
     }
 
     normalizedPoint(event) {
@@ -548,87 +795,39 @@
       this.canvas.addEventListener('pointercancel', up);
       this.canvas.addEventListener('pointerleave', event => {
         if (this.isDrawing && event.pointerId === this.activeDrawPointerId) return;
-        this.session.sendCursor(this.activeBoardId, 0, 0, false);
+        if (this.brushPreview) this.brushPreview.hide();
+        this._sendCursor(this.activeBoardId, 0, 0, false);
       });
     }
 
     _onPointerDown(event) {
       if (this.popupPalette && this.popupPalette.isOpen()) this.popupPalette.close();
-      // 中键拖移由 CanvasViewport 处理；右键留给轮盘 contextmenu
       if (event.button === 1 || event.button === 2) return;
       if (event.button !== 0 && !this.penInput.isPenEraser(event)) return;
       if (this.viewport && this.viewport.isPanning()) return;
       if (this.penInput.shouldIgnorePointer(event, this.activeDrawPointerId)) return;
-      if (this.currentTool === 'zoom') {
-        event.preventDefault();
-        const zoomIn = !(event.altKey || event.shiftKey);
-        if (this.viewport) this.viewport.zoomStepAt(event.clientX, event.clientY, zoomIn);
-        return;
-      }
-      if (this._activeLayerLocked()) return;
-      if (this.currentTool !== 'brush' && this.currentTool !== 'eraser') return;
-      if (this.penInput.isStylus(event)) this.penInput.markPenActivity(event, true);
-      event.preventDefault();
-      this.canvas.setPointerCapture(event.pointerId);
-      this.activeDrawPointerId = event.pointerId;
-      this.isDrawing = true;
-      this.activeStrokeId = crypto.randomUUID();
-      this.activeStrokeTool = this.penInput.isPenEraser(event) ? 'eraser' : this.currentTool;
-      this.lastPoint = this.normalizedPoint(event);
-      if (this.recentColors) this.recentColors.push(this.currentColor);
-      this.stage.classList.add('stylus-ready');
+      if (this.toolController && this.toolController.onPointerDown(event)) return;
     }
 
     _onPointerMove(event) {
       if (this.viewport && this.viewport.isPanning()) return;
       const pt = this.normalizedPoint(event);
-      if (this.currentTool === 'zoom') return;
-      this.session.sendCursor(this.activeBoardId, pt.x, pt.y, this.isDrawing);
-      if (!this.isDrawing || event.pointerId !== this.activeDrawPointerId) return;
-      if (this.penInput.shouldIgnorePointer(event, this.activeDrawPointerId)) return;
-      if (this.penInput.isStylus(event)) this.penInput.markPenActivity(event, true);
-      event.preventDefault();
-      if (!this.lastPoint) {
-        this.lastPoint = pt;
-        return;
+      if (this.brushPreview) this.brushPreview.update(event.clientX, event.clientY);
+      if (BRUSH_TOOLS.has(this.currentTool) || this.isDrawing) {
+        this._sendCursor(this.activeBoardId, pt.x, pt.y, this.isDrawing);
+      } else if (this.currentTool !== 'zoom' && this.currentTool !== 'hand') {
+        this._sendCursor(this.activeBoardId, pt.x, pt.y, false);
       }
-      const dx = pt.x - this.lastPoint.x;
-      const dy = pt.y - this.lastPoint.y;
-      const minDist = 0.5 / Math.max(this.drawingBoard.logicalWidth, 1);
-      if (dx * dx + dy * dy < minDist * minDist) return;
-      const segment = {
-        x1: this.lastPoint.x,
-        y1: this.lastPoint.y,
-        x2: pt.x,
-        y2: pt.y,
-        color: this.currentColor,
-        size: this.penInput.strokeSize(event),
-        tool: this.activeStrokeTool === 'eraser' ? 'eraser' : 'brush'
-      };
-      this._appendLocalSegment(this.activeStrokeId, segment);
-      this.lastPoint = pt;
+      if (this.toolController && this.toolController.onPointerMove(event)) return;
     }
 
     _onPointerUp(event) {
-      if (event.pointerId !== this.activeDrawPointerId) return;
-      if (this.penInput.isStylus(event)) this.penInput.clearPenPointer(event);
-      this.isDrawing = false;
-      this.activeDrawPointerId = null;
-      this.activeStrokeId = '';
-      this.lastPoint = null;
-      this.stage.classList.remove('stylus-ready');
-      this.adapter.flushSegments();
-      this._redraw();
-      const pt = this.normalizedPoint(event);
-      this.session.sendCursor(this.activeBoardId, pt.x, pt.y, false);
+      if (this.toolController && this.toolController.onPointerUp(event)) return;
     }
 
     _bindToolbar() {
       if (this.toolRail) {
-        this.toolRail.onChange = toolId => {
-          this.currentTool = toolId;
-          if (this.stage) this.stage.dataset.tool = toolId;
-        };
+        this.toolRail.onChange = toolId => this._setTool(toolId);
       }
       if (this.colorPicker) {
         this.colorPicker.onChange = color => { this.currentColor = color; };
@@ -636,9 +835,18 @@
       }
       const sizeInput = document.getElementById('brushSize');
       if (sizeInput) {
+        const showCenterPreview = () => {
+          if (this.brushPreview) this.brushPreview.showAtCenter({ pinned: true });
+        };
+        const hideCenterPreview = () => this._hideBrushSizePreview();
+        sizeInput.addEventListener('pointerdown', showCenterPreview);
         sizeInput.addEventListener('input', () => {
           this.currentSize = clamp(Number(sizeInput.value) || 8, BRUSH_MIN, BRUSH_MAX);
+          showCenterPreview();
         });
+        sizeInput.addEventListener('pointerup', hideCenterPreview);
+        sizeInput.addEventListener('change', hideCenterPreview);
+        sizeInput.addEventListener('blur', hideCenterPreview);
         this.currentSize = clamp(Number(sizeInput.value) || 8, BRUSH_MIN, BRUSH_MAX);
       }
       const undoBtn = document.getElementById('undoBtn');

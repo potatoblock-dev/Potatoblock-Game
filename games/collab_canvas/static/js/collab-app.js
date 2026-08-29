@@ -72,12 +72,26 @@
     setJoinError('');
   }
 
-  function cursorColor(playerId) {
-    let hash = 0;
-    const text = String(playerId || '');
-    for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-    return `hsl(${hash % 360} 75% 55%)`;
-  }
+  const onlinePrefs = new OnlinePrefs();
+  let session = null;
+  onlinePrefs.onChange = () => {
+    const displayName = onlinePrefs.resolveDisplayName(nickname);
+    if (session && session.connected) {
+      session.sendPlayerStyle({
+        label_color: onlinePrefs.getWireLabelColor(),
+        display_name: displayName
+      });
+    }
+    if (boardController && roomPanel) {
+      const list = boardController.getPlayersSnapshot().slice();
+      const idx = list.findIndex(p => p.uid === boardController.selfId);
+      if (idx >= 0) {
+        list[idx] = Object.assign({}, list[idx], { name: displayName });
+        boardController.setPlayersSnapshot(list);
+        roomPanel.setPlayers(list);
+      }
+    }
+  };
 
   const canvas = document.getElementById('drawCanvas');
   const stage = document.getElementById('canvasStage');
@@ -105,6 +119,7 @@
   let boardController = null;
   let settingsPanel = null;
   let popupPalette = null;
+  let roomPanel = null;
 
   const colorPair = new ColorPairState({
     onChange: snap => {
@@ -126,7 +141,9 @@
 
   const cursorOverlay = new CursorOverlay(cursorLayer, {
     selfId,
-    colorFor: cursorColor
+    resolveLabelColor: (playerId, wireColor) => onlinePrefs.resolveLabelColor(playerId, wireColor),
+    getLogicalWidth: () => (boardController ? boardController.drawingBoard.logicalWidth : 960),
+    getCanvas: () => canvas
   });
 
   const toolRail = new ToolRail(document.getElementById('dockLeft'), {
@@ -186,9 +203,10 @@
     showJoinScreen('');
   }
 
-  const session = new CollabSession({
+  session = new CollabSession({
     selfId,
     nickname,
+    getDisplayName: () => onlinePrefs.resolveDisplayName(nickname),
     handlers: {
       close: () => setStatus('连接已断开，请刷新页面'),
       error: data => {
@@ -209,6 +227,20 @@
         boardController.setSelfId(data.self_id);
         cursorOverlay.setSelfId(data.self_id);
         boardController.handleRoomState(data);
+        session.sendPlayerStyle({
+          label_color: onlinePrefs.getWireLabelColor(),
+          display_name: onlinePrefs.resolveDisplayName(nickname)
+        });
+        if (roomPanel) roomPanel.setPlayers(data.players || []);
+        if (Array.isArray(data.players)) {
+          data.players.forEach(player => {
+            if (player.uid === data.self_id) return;
+            cursorOverlay.setPlayerStyle(player.uid, {
+              label_color: player.label_color,
+              nickname: player.name
+            });
+          });
+        }
         setStatus('');
         const copyBtn = document.getElementById('copyLinkBtn');
         if (copyBtn) copyBtn.onclick = () => copyRoomLink();
@@ -227,9 +259,64 @@
       layer_reordered: data => boardController.handleLayerReordered(data),
       layer_updated: data => boardController.handleLayerUpdated(data),
       cursor_update: data => cursorOverlay.update(data.player_id, data),
-      player_join: data => setStatus(`${data.name} 加入了房间`),
+      player_style: data => {
+        cursorOverlay.setPlayerStyle(data.player_id, data);
+        if (boardController && data.name) {
+          const list = boardController.getPlayersSnapshot().slice();
+          const idx = list.findIndex(p => p.uid === data.player_id);
+          if (idx >= 0) {
+            list[idx] = Object.assign({}, list[idx], { name: data.name });
+            boardController.setPlayersSnapshot(list);
+            if (roomPanel) roomPanel.setPlayers(list);
+          }
+        }
+      },
+      player_permissions: data => {
+        boardController.handlePlayerPermissions(data);
+        if (roomPanel) {
+          roomPanel.updatePlayerPermissions(data.player_id, {
+            can_draw: data.can_draw,
+            can_save: data.can_save
+          });
+        }
+      },
+      player_join: data => {
+        cursorOverlay.setPlayerStyle(data.player_id, data);
+        if (roomPanel) {
+          const list = boardController.getPlayersSnapshot().slice();
+          const idx = list.findIndex(p => p.uid === data.player_id);
+          const row = {
+            uid: data.player_id,
+            name: data.name,
+            connected: true,
+            is_host: !!data.is_host,
+            label_color: data.label_color || '',
+            can_draw: data.can_draw !== false,
+            can_save: data.can_save !== false
+          };
+          if (idx >= 0) list[idx] = Object.assign({}, list[idx], row);
+          else list.push(row);
+          boardController.setPlayersSnapshot(list);
+          roomPanel.setPlayers(list);
+        }
+        setStatus(`${data.name} 加入了房间`);
+      },
       player_leave: data => {
         if (!data.temporary) cursorOverlay.remove(data.player_id);
+        if (roomPanel) {
+          const list = boardController.getPlayersSnapshot().slice();
+          if (data.temporary) {
+            const next = list.map(p => (
+              p.uid === data.player_id ? Object.assign({}, p, { connected: false }) : p
+            ));
+            boardController.setPlayersSnapshot(next);
+            roomPanel.setPlayers(next);
+          } else {
+            const next = list.filter(p => p.uid !== data.player_id);
+            boardController.setPlayersSnapshot(next);
+            roomPanel.setPlayers(next);
+          }
+        }
         if (data.message) setStatus(data.message);
       }
     }
@@ -239,7 +326,7 @@
     execute: actionId => {
       if (boardController) boardController.executeAction(actionId);
     },
-    isModalOpen: () => settingsPanel && settingsPanel.isOpen(),
+    isModalOpen: () => (settingsPanel && settingsPanel.isOpen()) || (roomPanel && roomPanel.isOpen()),
     isPopupOpen: () => popupPalette && popupPalette.isOpen(),
     isRoomActive: () => roomScreen && !roomScreen.classList.contains('hidden')
   });
@@ -258,6 +345,11 @@
     recentColors,
     getBrushSize: () => (boardController ? boardController.currentSize : 8),
     getBrushColor: () => (colorPair ? colorPair.foreground : '#111827'),
+    getDrawingBoard: () => (boardController ? boardController.drawingBoard : null),
+    getBoardController: () => boardController,
+    onlinePrefs,
+    session,
+    getNickname: () => nickname,
     onOpen: () => {
       const exportPanel = document.getElementById('exportMenuPanel');
       if (exportPanel) exportPanel.classList.add('hidden');
@@ -278,6 +370,7 @@
     colorPair,
     penInput,
     recentColors,
+    onlinePrefs,
     selfId,
     onRoomChange: () => {}
   });
@@ -289,14 +382,36 @@
     recentColors,
     isDrawing: () => boardController && boardController.isDrawing,
     isPanning: () => canvasViewport.isPanning(),
-    isModalOpen: () => settingsPanel && settingsPanel.isOpen(),
+    isModalOpen: () => (settingsPanel && settingsPanel.isOpen()) || (roomPanel && roomPanel.isOpen()),
     onColorApplied: snap => {
       boardController.currentColor = snap.foreground;
     }
   });
   boardController.popupPalette = popupPalette;
 
-  if (stage) stage.dataset.tool = toolRail.getTool();
+  roomPanel = new RoomPanel({
+    session,
+    getSelfId: () => boardController.selfId,
+    getOwnerId: () => boardController.ownerId,
+    onKick: targetId => session.kickPlayer(targetId),
+    onSetPermissions: patch => session.sendHostPermissions(patch)
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!roomScreen || roomScreen.classList.contains('hidden')) return;
+    const target = event.target;
+    if (target && target.matches('input, textarea, select, [contenteditable="true"]')) return;
+    if (settingsPanel && settingsPanel.isOpen()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    roomPanel.toggle();
+  }, true);
+
+  if (stage) {
+    stage.dataset.tool = toolRail.getTool();
+    if (boardController) boardController._applyToolCursor(toolRail.getTool());
+  }
 
   boardController.setRoomActions({
     copyLink: copyRoomLink,
@@ -346,5 +461,9 @@
   if (pathRoom) {
     showRoomScreen(pathRoom);
     session.joinRoom(pathRoom);
+  }
+
+  if (typeof createCollabFullscreen === 'function') {
+    createCollabFullscreen();
   }
 })();

@@ -1,6 +1,6 @@
 (function (global) {
   'use strict';
-  const VALID_TOOLS = new Set(['brush', 'eraser', 'fill', 'background']);
+  const VALID_TOOLS = new Set(['brush', 'eraser', 'fill', 'background', 'line', 'rect', 'ellipse', 'gradient']);
   const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
   const unitNumber = value => {
     const number = Number(value);
@@ -215,12 +215,14 @@
       return rgbToHex(pixel[0] * alpha + background.r * (1 - alpha), pixel[1] * alpha + background.g * (1 - alpha), pixel[2] * alpha + background.b * (1 - alpha));
     }
     drawSegment(segment) {
+      if (segment && segment.tool === 'localRaster') return this.drawLocalRaster(segment);
       if (!segment || !VALID_TOOLS.has(segment.tool || 'brush')) return false;
       const tool = segment.tool || 'brush';
       if (tool === 'background') { this.setBackground(segment.color); return true; }
       if (tool === 'fill') return this.floodFill(segment).changed;
+      if (tool === 'gradient') return this.drawGradient(segment);
       const strokeStyle = isHexColor(segment.color) ? segment.color : '#111827';
-      if (this.pixelMode) {
+      if (this.pixelMode && (tool === 'brush' || tool === 'eraser')) {
         this.stampPixelStroke(
           this.context,
           unitNumber(segment.x1),
@@ -242,19 +244,95 @@
       const paint = context => {
         context.save();
         context.globalCompositeOperation = composite;
-        context.beginPath();
-        context.moveTo(x1, y1);
-        context.lineTo(x2, y2);
         context.strokeStyle = strokeStyle;
+        context.fillStyle = strokeStyle;
         context.lineWidth = lineWidth;
         context.lineCap = 'round';
         context.lineJoin = 'round';
-        context.stroke();
+        if (tool === 'line') {
+          context.beginPath();
+          context.moveTo(x1, y1);
+          context.lineTo(x2, y2);
+          context.stroke();
+        } else if (tool === 'rect') {
+          const left = Math.min(x1, x2);
+          const top = Math.min(y1, y2);
+          const rw = Math.abs(x2 - x1);
+          const rh = Math.abs(y2 - y1);
+          if (segment.filled) context.fillRect(left, top, rw, rh);
+          else context.strokeRect(left, top, rw, rh);
+        } else if (tool === 'ellipse') {
+          const cx = (x1 + x2) / 2;
+          const cy = (y1 + y2) / 2;
+          const rx = Math.abs(x2 - x1) / 2;
+          const ry = Math.abs(y2 - y1) / 2;
+          context.beginPath();
+          context.ellipse(cx, cy, Math.max(rx, 0.5), Math.max(ry, 0.5), 0, 0, Math.PI * 2);
+          if (segment.filled) context.fill();
+          else context.stroke();
+        } else {
+          context.beginPath();
+          context.moveTo(x1, y1);
+          context.lineTo(x2, y2);
+          context.stroke();
+        }
         context.restore();
       };
-      // Paint only the active context. Full redraw() rebuilds the offscreen buffer from strokes,
-      // so dual-writing every segment adds latency without helping correctness.
       paint(this.context);
+      return true;
+    }
+
+    /** 绘制仅本地的像素块（选区操作结果，不参与联机同步）。 */
+    drawLocalRaster(segment) {
+      const x = Math.floor(unitNumber(segment.x) * this.logicalWidth);
+      const y = Math.floor(unitNumber(segment.y) * this.logicalHeight);
+      const w = Math.max(1, Math.floor(unitNumber(segment.w) * this.logicalWidth));
+      const h = Math.max(1, Math.floor(unitNumber(segment.h) * this.logicalHeight));
+      const raw = segment.pixels;
+      if (!raw || !raw.length) return false;
+      const ctx = this.context;
+      ctx.save();
+      for (let row = 0; row < h; row += 1) {
+        for (let col = 0; col < w; col += 1) {
+          const i = (row * w + col) * 4;
+          const alpha = raw[i + 3];
+          if (segment.punch && alpha === 0) {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + col, y + row, 1, 1);
+          } else if (alpha > 0) {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(' + raw[i] + ',' + raw[i + 1] + ',' + raw[i + 2] + ',' + (alpha / 255) + ')';
+            ctx.fillRect(x + col, y + row, 1, 1);
+          }
+        }
+      }
+      ctx.restore();
+      return true;
+    }
+
+    /** 在 segment 两点间 bounding box 内绘制线性渐变。 */
+    drawGradient(segment) {
+      const x1 = unitNumber(segment.x1) * this.logicalWidth;
+      const y1 = unitNumber(segment.y1) * this.logicalHeight;
+      const x2 = unitNumber(segment.x2) * this.logicalWidth;
+      const y2 = unitNumber(segment.y2) * this.logicalHeight;
+      const left = clamp(Math.min(x1, x2), 0, this.logicalWidth);
+      const top = clamp(Math.min(y1, y2), 0, this.logicalHeight);
+      const right = clamp(Math.max(x1, x2), 0, this.logicalWidth);
+      const bottom = clamp(Math.max(y1, y2), 0, this.logicalHeight);
+      const rw = Math.max(1, right - left);
+      const rh = Math.max(1, bottom - top);
+      const c1 = isHexColor(segment.color) ? segment.color : '#111827';
+      const c2 = isHexColor(segment.color2) ? segment.color2 : this.backgroundColor;
+      const ctx = this.context;
+      ctx.save();
+      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, c1);
+      grad.addColorStop(1, c2);
+      ctx.fillStyle = grad;
+      ctx.fillRect(left, top, rw, rh);
+      ctx.restore();
       return true;
     }
     ensureBufferSize() {
