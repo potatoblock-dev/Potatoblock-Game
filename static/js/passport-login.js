@@ -1,4 +1,4 @@
-/** 通行证登录：OAuth2 + PKCE（与 Passport OIDC 对齐；桌面弹窗 / 移动端整页）。 */
+/** 通行证登录：默认 JWT 桥接（return_url）；可选 OAuth2 + PKCE。 */
 (function () {
   'use strict';
 
@@ -10,9 +10,36 @@
     ? 'potatoblock-game-dev'
     : 'potatoblock-game';
 
+  /** 读取登录模式：jwt-bridge（默认）或 oauth-pkce。 */
+  function authMode() {
+    var meta = document.querySelector('meta[name="pb-auth-mode"]');
+    var fromMeta = meta && meta.getAttribute('content');
+    if (fromMeta === 'oauth-pkce') return 'oauth-pkce';
+    var fromHtml = document.documentElement.getAttribute('data-auth-mode');
+    if (fromHtml === 'oauth-pkce') return 'oauth-pkce';
+    return 'jwt-bridge';
+  }
+
   /** 登录完成后应回到的路径（相对本站）。 */
   function defaultNextPath() {
     return window.location.pathname + window.location.search;
+  }
+
+  /** 旧版桥接：传给 Passport 的完整 return_url。 */
+  function buildReturnUrl(nextPath) {
+    if (nextPath && nextPath.charAt(0) === '/') {
+      return location.origin + nextPath;
+    }
+    if (nextPath && /^https?:\/\//i.test(nextPath)) {
+      return nextPath;
+    }
+    return location.href;
+  }
+
+  /** 构建 Passport 登录 URL（JWT 桥接）。 */
+  function buildPassportLoginUrl(nextPath) {
+    var returnUrl = buildReturnUrl(nextPath);
+    return PASSPORT_ORIGIN + '/login?return_url=' + encodeURIComponent(returnUrl);
   }
 
   /** 平板/手机或 PWA 独立窗口。 */
@@ -38,7 +65,7 @@
     return base64UrlEncode(arr);
   }
 
-  /** 创建 PKCE 上下文并写入 storage（平板整页跳转兜底 localStorage）。 */
+  /** 创建 PKCE 上下文并写入 storage。 */
   function createPkceContext(nextPath) {
     var verifier = randomUrlSafe(32);
     var state = randomUrlSafe(16);
@@ -76,7 +103,7 @@
     return PASSPORT_ORIGIN + '/oauth/authorize?' + params.toString();
   }
 
-  /** 等待弹窗登录完成（postMessage 或 /api/me 轮询）。 */
+  /** 等待弹窗登录完成（轮询 /api/me）。 */
   function waitForLoginComplete(loginTab) {
     return new Promise(function (resolve, reject) {
       var settled = false;
@@ -136,8 +163,24 @@
     });
   }
 
-  /** 启动 OAuth 登录；移动端整页跳转，桌面优先弹窗。 */
-  function loginPopup(nextPath) {
+  /** JWT 桥接：跳转 Passport 登录页并轮询 /api/me。 */
+  function loginJwtBridge(nextPath) {
+    var url = buildPassportLoginUrl(nextPath);
+    if (!isMobileLike()) {
+      var w = 440;
+      var h = 720;
+      var left = Math.max(0, (window.screen.width - w) / 2);
+      var top = Math.max(0, (window.screen.height - h) / 2);
+      var features = 'popup=yes,width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
+      var tab = window.open(url, POPUP_NAME, features);
+      if (tab) return waitForLoginComplete(tab);
+    }
+    window.location.assign(url);
+    return new Promise(function () {});
+  }
+
+  /** OAuth PKCE 登录。 */
+  function loginOAuthPkce(nextPath) {
     return createPkceContext(nextPath).then(function (ctx) {
       var url = buildAuthorizeUrl(ctx);
       if (!isMobileLike()) {
@@ -152,6 +195,14 @@
       window.location.assign(url);
       return new Promise(function () {});
     });
+  }
+
+  /** 按 AUTH_MODE 启动登录。 */
+  function loginPopup(nextPath) {
+    if (authMode() === 'oauth-pkce') {
+      return loginOAuthPkce(nextPath);
+    }
+    return loginJwtBridge(nextPath);
   }
 
   /** 登录成功后跳转到 return 路径或刷新当前页。 */
@@ -182,6 +233,8 @@
 
   window.PotatoblockPassportLogin = {
     loginPopup: loginPopup,
+    authMode: authMode,
+    buildPassportLoginUrl: buildPassportLoginUrl,
     MESSAGE_TYPE: MESSAGE_TYPE,
     isMobileLike: isMobileLike
   };

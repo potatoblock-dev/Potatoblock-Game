@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -39,17 +39,27 @@ def _passport_cors_headers(request: Request) -> dict[str, str]:
     return {}
 
 
+def _passport_login_retry_url(return_url: str | None) -> str:
+    """桥接失败时回到 Passport 登录页，并尽量保留 return_url。"""
+    base = f"{PASSPORT_ORIGIN}/login"
+    raw = str(return_url or "").strip()
+    if not raw:
+        return base
+    return f"{base}?return_url={quote(raw, safe='')}"
+
+
 def _bridge_error_response(
     request: Request,
     *,
     message: str,
     status_code: int,
     wants_json: bool,
+    return_url: str | None = None,
 ) -> HTMLResponse | JSONResponse:
     """表单 POST 失败时返回 HTML 错误页，避免平板出现 JSON 白屏。"""
     if wants_json:
         return JSONResponse({"ok": False, "error": message}, status_code=status_code)
-    retry = f"{PASSPORT_ORIGIN}/login"
+    retry = _passport_login_retry_url(return_url)
     return TEMPLATES.TemplateResponse(
         request=request,
         name="passport_bridge_error.html",
@@ -191,7 +201,11 @@ def attach_pwa_routes(app: FastAPI) -> None:
 
         if not token:
             resp = _bridge_error_response(
-                request, message="缺少登录凭证，请重新登录。", status_code=400, wants_json=wants_json
+                request,
+                message="缺少登录凭证，请重新登录。",
+                status_code=400,
+                wants_json=wants_json,
+                return_url=return_url,
             )
             if cors and isinstance(resp, JSONResponse):
                 resp.headers.update(cors)
@@ -205,26 +219,33 @@ def attach_pwa_routes(app: FastAPI) -> None:
                 message=f"通行证验证失败（{exc}），请重新登录。",
                 status_code=401,
                 wants_json=wants_json,
+                return_url=return_url,
             )
             if cors and isinstance(resp, JSONResponse):
                 resp.headers.update(cors)
             return resp
 
+        safe_return = _safe_return_url(return_url, request)
+        if wants_json:
+            resp = JSONResponse({"ok": True, "user_id": profile["user_id"], "return": safe_return})
+        else:
+            resp = RedirectResponse(url=safe_return, status_code=303)
+
         auth_mod = importlib.import_module("app.routers.auth")
         handler = getattr(auth_mod, "establish_session_from_passport_token", None)
         if handler is not None:
-            await handler(request, token)
-        else:
+            try:
+                await handler(request, token, resp, profile)
+            except TypeError:
+                await handler(request, token)
+        elif hasattr(request, "session"):
             request.session.clear()
             request.session["user_id"] = profile["user_id"]
             request.session["nickname"] = profile.get("nickname") or ""
 
-        safe_return = _safe_return_url(return_url, request)
         if wants_json:
-            resp = JSONResponse({"ok": True, "user_id": profile["user_id"], "return": safe_return})
             resp.headers.update(cors)
-            return resp
-        return RedirectResponse(url=safe_return, status_code=303)
+        return resp
 
     @app.get("/api/me", include_in_schema=False)
     async def current_user(identity=Depends(get_optional_identity)) -> JSONResponse:
