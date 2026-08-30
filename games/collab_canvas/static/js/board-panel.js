@@ -16,6 +16,7 @@
       this.onCreate = settings.onCreate || (() => {});
       this.onRename = settings.onRename || (() => {});
       this.onDelete = settings.onDelete || (() => {});
+      this.canDeleteBoard = settings.canDeleteBoard || (() => true);
       this.isOwner = settings.isOwner || (() => false);
       this.getCreateCooldownMs = settings.getCreateCooldownMs || (() => 0);
       this.getPlayersForBoard = settings.getPlayersForBoard || (() => []);
@@ -290,7 +291,9 @@
     }
 
     _showContextMenu(board, clientX, clientY) {
-      if (!this.isOwner() || board.board_id === DEFAULT_BOARD_ID) return;
+      if (!this.isOwner()) return;
+      if (this.boards.length <= 1) return;
+      if (board.board_id === DEFAULT_BOARD_ID) return;
       this._hideOccupantTree();
       this._closeMenu();
       const menu = document.createElement('div');
@@ -385,10 +388,11 @@
 
         const actions = document.createElement('div');
         actions.className = 'layer-row-actions';
-        if (owner && boardId !== DEFAULT_BOARD_ID) {
+        if (owner && this.canDeleteBoard(boardId)) {
           const delBtn = this._createRowIconBtn('delete', '删除画板');
           delBtn.addEventListener('click', event => {
             event.stopPropagation();
+            if (!this.canDeleteBoard(boardId)) return;
             const title = meta.title || boardId;
             if (confirm('删除画板「' + title + '」？（需无笔迹内容）')) {
               this.onDelete(boardId);

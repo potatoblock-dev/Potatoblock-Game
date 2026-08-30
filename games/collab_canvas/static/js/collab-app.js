@@ -200,6 +200,7 @@
     onCreate: () => boardController && boardController.createBoard(),
     onRename: (id, title) => boardController && boardController.renameBoard(id, title),
     onDelete: id => boardController && boardController.deleteBoard(id),
+    canDeleteBoard: id => boardController && boardController.canDeleteBoard(id),
     getPlayersForBoard: boardId => {
       if (!boardController) return [];
       const target = String(boardId || 'b_default');
@@ -220,6 +221,7 @@
     onCreateGroup: () => boardController && boardController.createLayerGroup(),
     onDuplicate: layerId => boardController && boardController.duplicateLayer(layerId),
     onDelete: layerId => boardController && boardController.deleteLayer(layerId),
+    canDeleteLayer: layerId => boardController && boardController.canDeleteLayer(layerId),
     onRename: (id, name) => boardController && boardController.renameLayer(id, name),
     onReorder: order => boardController && boardController.reorderLayers(order),
     onUpdate: (id, patch) => boardController && boardController.updateLayer(id, patch),

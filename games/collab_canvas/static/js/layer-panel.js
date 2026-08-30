@@ -12,6 +12,7 @@
       this.onCreateGroup = settings.onCreateGroup || (() => {});
       this.onDuplicate = settings.onDuplicate || (() => {});
       this.onDelete = settings.onDelete || (() => {});
+      this.canDeleteLayer = settings.canDeleteLayer || (() => true);
       this.onRename = settings.onRename || (() => {});
       this.onReorder = settings.onReorder || (() => {});
       this.onUpdate = settings.onUpdate || (() => {});
@@ -348,9 +349,15 @@
       delItem.className = 'layer-context-menu-item is-danger';
       delItem.textContent = this._isGroupLayer(layer) ? '删除图层组' : '删除图层';
       delItem.setAttribute('role', 'menuitem');
+      const canDelete = this.canDeleteLayer(layer.layer_id);
+      if (!canDelete) {
+        delItem.disabled = true;
+        delItem.title = '至少保留一个图层';
+      }
       delItem.addEventListener('click', event => {
         event.stopPropagation();
         this._closePopup();
+        if (!canDelete) return;
         if (confirm('删除「' + (layer.name || layer.layer_id) + '」？')) {
           this.onDelete(layer.layer_id);
         }

@@ -95,6 +95,15 @@ def _hex_color(value: object) -> str:
     return color.lower()
 
 
+def _stroke_size(value: object, default: float = 5.0) -> float:
+    """笔刷/线宽：1–64，最多两位小数。"""
+    try:
+        size = round(float(value), 2)
+    except (TypeError, ValueError):
+        size = default
+    return max(1.0, min(64.0, size))
+
+
 def normalize_segment(data: Dict) -> Dict[str, object]:
     """Validate and normalize a brush, eraser, fill, or background command."""
     tool = str(data.get("tool", "brush"))
@@ -128,7 +137,7 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
             "x2": _unit_float(data["x2"]),
             "y2": _unit_float(data["y2"]),
             "color": color,
-            "size": max(1, min(64, int(data.get("size", 5)))),
+            "size": _stroke_size(data.get("size", 5)),
             "tool": tool,
         }
         if tool in {"rect", "ellipse"}:
@@ -140,7 +149,7 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
         "x2": _unit_float(data["x2"]),
         "y2": _unit_float(data["y2"]),
         "color": color,
-        "size": max(1, min(64, int(data.get("size", 5)))),
+        "size": _stroke_size(data.get("size", 5)),
         "tool": tool,
     }
 

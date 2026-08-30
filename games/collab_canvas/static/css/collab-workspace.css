@@ -671,6 +671,20 @@ body.is-dock-split-dragging * {
   display: flex; align-items: center; gap: 8px;
 }
 .brush-size-label { flex-shrink: 0; min-width: 2em; }
+.brush-size-value {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px;
+}
+.brush-size-number {
+  width: 48px; padding: 2px 4px; font-size: 11px;
+  background: var(--ws-panel-2); border: 1px solid var(--ws-line); color: var(--ws-text);
+  border-radius: 0; text-align: right;
+}
+.brush-size-unit {
+  flex-shrink: 0; font-size: 11px; color: var(--ws-muted); line-height: 1;
+}
+.brush-size-number::-webkit-outer-spin-button,
+.brush-size-number::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.brush-size-number { -moz-appearance: textfield; appearance: textfield; }
 
 /* 右下：图层 / 画板 tab */
 .dock-bottom-tabs { display: flex; border-bottom: 1px solid var(--ws-line); flex-shrink: 0; }

@@ -3,11 +3,25 @@
 
   const BRUSH_MIN = 1;
   const BRUSH_MAX = 64;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  /** 笔刷粗细：保留两位小数并限制在合法区间。 */
+  const roundBrushSize = value => {
+    const n = Math.round(Number(value) * 100) / 100;
+    if (!Number.isFinite(n)) return 8;
+    return clamp(n, BRUSH_MIN, BRUSH_MAX);
+  };
+
+  /** 数字框展示：整数不带小数，否则最多两位。 */
+  const formatBrushSizeDisplay = value => {
+    const n = roundBrushSize(value);
+    if (Number.isInteger(n)) return String(n);
+    return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  };
   const PALETTE = [
     '#111827', '#ef4444', '#f97316', '#eab308', '#22c55e',
     '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'
   ];
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const BRUSH_TOOLS = new Set(['brush', 'eraser']);
 
   /** 画板绘制生命周期：本地优先 + 联机同步。 */
@@ -251,8 +265,10 @@
           this.createLayer();
           return;
         case 'layerDelete':
-          if (this.activeLayerId && confirm('删除当前图层？')) {
+          if (this.activeLayerId && this.canDeleteLayer(this.activeLayerId) && confirm('删除当前图层？')) {
             this.deleteLayer(this.activeLayerId);
+          } else if (this.activeLayerId && !this.canDeleteLayer(this.activeLayerId)) {
+            this._layerUiMessage('至少保留一个图层');
           }
           return;
         case 'layerUp':
@@ -400,10 +416,16 @@
     }
 
     _adjustBrushSize(delta) {
-      const sizeInput = document.getElementById('brushSize');
-      const next = clamp(this.currentSize + delta, BRUSH_MIN, BRUSH_MAX);
-      this.currentSize = next;
-      if (sizeInput) sizeInput.value = String(next);
+      this._setBrushSize(this.currentSize + delta);
+    }
+
+    /** 同步滑块、数字框与 currentSize。 */
+    _setBrushSize(value) {
+      this.currentSize = roundBrushSize(value);
+      const sizeSlider = document.getElementById('brushSize');
+      const sizeNumber = document.getElementById('brushSizeNumber');
+      if (sizeSlider) sizeSlider.value = String(this.currentSize);
+      if (sizeNumber) sizeNumber.value = formatBrushSizeDisplay(this.currentSize);
       this._updateBrushSizeDockPreview();
     }
 
@@ -853,8 +875,25 @@
       });
     }
 
+    /** 是否允许删除该画板（房间至少保留一个）。 */
+    canDeleteBoard(boardId) {
+      if (!boardId || this.boardsMeta.length <= 1) return false;
+      if (boardId === 'b_default') return false;
+      return true;
+    }
+
+    /** 是否允许删除该图层（画板至少保留一个）。 */
+    canDeleteLayer(layerId) {
+      if (!layerId) return false;
+      return this.layersMeta.length > 1;
+    }
+
     deleteLayer(layerId) {
       if (!layerId) return;
+      if (!this.canDeleteLayer(layerId)) {
+        this._layerUiMessage('至少保留一个图层');
+        return;
+      }
       this.session.send({ type: 'layer_delete', board_id: this.activeBoardId, layer_id: layerId });
     }
 
@@ -933,6 +972,14 @@
     }
 
     deleteBoard(boardId) {
+      if (!this.canDeleteBoard(boardId)) {
+        if (this._roomActions.setStatus) {
+          this._roomActions.setStatus(
+            this.boardsMeta.length <= 1 ? '至少保留一个画板' : '默认画板不能删除'
+          );
+        }
+        return;
+      }
       this.session.send({ type: 'board_delete', board_id: boardId });
     }
 
@@ -1230,14 +1277,17 @@
         this.colorPicker.onChange = color => { this.currentColor = color; };
         this.currentColor = this.colorPicker.getColor();
       }
-      const sizeInput = document.getElementById('brushSize');
-      if (sizeInput) {
-        sizeInput.addEventListener('input', () => {
-          this.currentSize = clamp(Number(sizeInput.value) || 8, BRUSH_MIN, BRUSH_MAX);
-          this._updateBrushSizeDockPreview();
-        });
-        this.currentSize = clamp(Number(sizeInput.value) || 8, BRUSH_MIN, BRUSH_MAX);
-        this._updateBrushSizeDockPreview();
+      const sizeSlider = document.getElementById('brushSize');
+      const sizeNumber = document.getElementById('brushSizeNumber');
+      if (sizeSlider) {
+        sizeSlider.addEventListener('input', () => this._setBrushSize(sizeSlider.value));
+      }
+      if (sizeNumber) {
+        sizeNumber.addEventListener('input', () => this._setBrushSize(sizeNumber.value));
+        sizeNumber.addEventListener('change', () => this._setBrushSize(sizeNumber.value));
+      }
+      if (sizeSlider || sizeNumber) {
+        this._setBrushSize(sizeSlider ? sizeSlider.value : (sizeNumber ? sizeNumber.value : 8));
       }
       const undoBtn = document.getElementById('undoBtn');
       const redoBtn = document.getElementById('redoBtn');

@@ -109,7 +109,11 @@
                     </div>
                     <label class="brush-size-row">
                       <span class="brush-size-label">粗细</span>
-                      <input id="brushSize" type="range" min="1" max="64" value="8">
+                      <input id="brushSize" type="range" min="1" max="64" step="0.01" value="8">
+                      <span class="brush-size-value">
+                        <input id="brushSizeNumber" class="brush-size-number" type="number" min="1" max="64" step="0.01" value="8" inputmode="decimal" aria-label="笔刷粗细（px）">
+                        <span class="brush-size-unit" aria-hidden="true">px</span>
+                      </span>
                     </label>
                   </div>
                 </div>

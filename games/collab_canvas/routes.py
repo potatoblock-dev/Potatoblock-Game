@@ -925,6 +925,9 @@ async def collab_websocket(websocket: WebSocket):
 
             if msg_type == "board_delete":
                 board_id = str(data.get("board_id") or "")
+                if len(room.get("boards") or {}) <= 1:
+                    await send_error(websocket, "至少保留一个画板")
+                    continue
                 if board_id == DEFAULT_BOARD_ID:
                     await send_error(websocket, "默认画板不能删除")
                     continue
@@ -1067,10 +1070,6 @@ async def collab_websocket(websocket: WebSocket):
                         continue
                     reparent_group_children(board, layer_id, layer_parent_id(target))
                 else:
-                    paint_count = sum(1 for item in board["layers"] if is_paint_layer(item))
-                    if paint_count <= 1:
-                        await send_error(websocket, "至少保留一个绘画图层")
-                        continue
                     if layer_has_strokes(board, layer_id):
                         await send_error(websocket, "图层上还有内容，请先清空")
                         continue
