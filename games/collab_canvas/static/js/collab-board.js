@@ -711,7 +711,7 @@
       return layer;
     }
 
-    /** 保证至少有两层：底白背景 + 顶透明绘画层。 */
+    /** 保证至少有两层：底白背景 + 顶绘画层。 */
     _coerceLayers(layers) {
       const fallback = [
         {

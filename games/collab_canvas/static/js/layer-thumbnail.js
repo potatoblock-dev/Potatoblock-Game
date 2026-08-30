@@ -2,21 +2,15 @@
   'use strict';
 
   const THUMB_SIZE = 36;
-  const CHECKER = 4;
 
-  /** 将单图层笔迹渲染为小缩略图（棋盘格 + 内容）。 */
+  /** 将单图层笔迹渲染为小缩略图（白底 + 内容）。 */
   const LayerThumbnail = {
     THUMB_SIZE,
 
-    /** 在目标 canvas 上绘制 checkerboard 背景。 */
-    _paintChecker(ctx, size) {
-      for (let y = 0; y < size; y += CHECKER) {
-        for (let x = 0; x < size; x += CHECKER) {
-          const odd = ((x / CHECKER) + (y / CHECKER)) % 2;
-          ctx.fillStyle = odd ? '#bdbdbd' : '#e8e8e8';
-          ctx.fillRect(x, y, CHECKER, CHECKER);
-        }
-      }
+    /** 在目标 canvas 上绘制白色背景。 */
+    _paintBackground(ctx, size) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
     },
 
     /** 将指定图层绘制到离屏 canvas。 */
@@ -55,7 +49,7 @@
       targetCanvas.height = size;
       const ctx = targetCanvas.getContext('2d');
       if (!ctx) return;
-      LayerThumbnail._paintChecker(ctx, size);
+      LayerThumbnail._paintBackground(ctx, size);
       if (layer.visible === false) {
         ctx.fillStyle = 'rgb(0 0 0 / .45)';
         ctx.fillRect(0, 0, size, size);

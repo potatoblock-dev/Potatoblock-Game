@@ -10,10 +10,6 @@
   --ws-viewport: #535353;
   --ws-left-w: 52px;
   --ws-right-w: 280px;
-  /* 透明底棋盘格（与 layer-thumbnail 一致：正交方格，非对角三角） */
-  --checker-light: #e8e8e8;
-  --checker-dark: #bdbdbd;
-  --checker-size: 8px;
 }
 
 .room-screen { padding: 0; height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--ws-bg); overscroll-behavior: none; }
@@ -471,12 +467,7 @@ body.is-dock-split-dragging * {
   max-width: none;
   will-change: transform;
   overflow: hidden;
-  background-color: var(--checker-light) !important;
-  background-image:
-    linear-gradient(0deg, var(--checker-dark) 50%, transparent 50%),
-    linear-gradient(90deg, var(--checker-dark) 50%, transparent 50%);
-  background-size: calc(var(--checker-size) * 2) calc(var(--checker-size) * 2);
-  background-position: 0 0, var(--checker-size) var(--checker-size);
+  background: #fff !important;
 }
 .canvas-zoom-badge {
   position: absolute; top: 8px; left: 8px; z-index: 30; padding: 3px 8px;
@@ -503,7 +494,7 @@ body.is-dock-split-dragging * {
   max-width: none;
   max-height: none;
   box-shadow: none;
-  background: transparent !important;
+  background: #fff !important;
 }
 
 /* 覆盖 drawing-board 移动端规则，合作画板始终铺满中央区 */

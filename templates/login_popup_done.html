@@ -6,14 +6,89 @@
     <title>登录成功</title>
     <script>
     (function () {
+      var MESSAGE_TYPE = 'pb-login-done';
+      var CHANNEL_NAME = 'potatoblock-passport-login';
+      var PKCE_STORAGE = 'pb_oauth_pkce';
       var params = new URLSearchParams(location.search);
       var ret = params.get('return') || '/';
-      if (window.opener) {
-        window.opener.postMessage({ type: 'pb-login-done', ok: true, return: ret }, location.origin);
-        window.close();
-      } else {
-        location.replace(ret);
+      var code = params.get('code') || '';
+      var state = params.get('state') || '';
+      var error = params.get('error') || '';
+
+      function notifyParent(payload) {
+        if (window.opener) {
+          try { window.opener.postMessage(payload, location.origin); } catch (err) {}
+        }
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            var ch = new BroadcastChannel(CHANNEL_NAME);
+            ch.postMessage(payload);
+            ch.close();
+          } catch (err) {}
+        }
       }
+
+      function finish(ok, errMsg) {
+        var payload = { type: MESSAGE_TYPE, ok: ok, return: ret };
+        if (errMsg) payload.error = errMsg;
+        notifyParent(payload);
+        if (window.opener) {
+          try { window.close(); return; } catch (err) {}
+        }
+        if (ok) location.replace(ret);
+      }
+
+      if (error) {
+        finish(false, error);
+        return;
+      }
+
+      var pkceRaw = localStorage.getItem(PKCE_STORAGE) || sessionStorage.getItem(PKCE_STORAGE);
+      if (!pkceRaw || !code || !state) {
+        finish(false, 'missing oauth context');
+        return;
+      }
+
+      var pkce;
+      try {
+        pkce = JSON.parse(pkceRaw);
+      } catch (err) {
+        finish(false, 'invalid pkce context');
+        return;
+      }
+
+      if (pkce.state !== state) {
+        finish(false, 'state mismatch');
+        return;
+      }
+      ret = pkce.return || ret;
+
+      fetch('/pwa/oauth/callback', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: code,
+          state: state,
+          code_verifier: pkce.verifier,
+          nonce: pkce.nonce,
+          return: ret
+        })
+      }).then(function (response) {
+        return response.json().then(function (body) {
+          return { ok: response.ok, body: body };
+        });
+      }).then(function (result) {
+        sessionStorage.removeItem(PKCE_STORAGE);
+        try { localStorage.removeItem(PKCE_STORAGE); } catch (e) {}
+        if (result.ok && result.body.ok) {
+          finish(true);
+          return;
+        }
+        finish(false, (result.body && result.body.error) || 'oauth callback failed');
+      }).catch(function () {
+        finish(false, 'network error');
+      });
     })();
     </script>
 </head>

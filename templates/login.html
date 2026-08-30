@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录</title>
     <link rel="icon" href="/static/icons/favicon.ico?v=1" sizes="any">
-    <link rel="icon" type="image/png" href="/static/icons/icon-192.png?v=2" sizes="192x192">
     <link rel="stylesheet" href="/static/css/site.css?v=20260716i">
     <script>
     (function () {
@@ -17,51 +16,26 @@
     <style>
     html.login-popup body { min-height: auto; }
     html.login-popup .login-card { box-shadow: none; }
+    body { background-color: #121212 !important; color: #f5f5f5; }
     </style>
 </head>
 <body class="bg-gray-950 text-white min-h-screen flex items-center justify-center">
-<style>
-  /* 登录页深色：纯灰度，避免 Tailwind gray 偏蓝 */
-  body { background-color: #121212 !important; color: #f5f5f5; }
-  .bg-gray-950 { background-color: #121212 !important; }
-  .bg-gray-900 { background-color: #1c1c1c !important; }
-</style>
     <div class="w-full max-w-sm bg-gray-900 rounded-xl p-8 login-card">
         <h1 class="text-2xl font-light text-center mb-6">土豆方块通行证登录</h1>
-        <p class="text-sm text-gray-400 text-center mb-4">本站登录不含人机验证，请使用通行证登录。</p>
-        <a href="https://passport.potatoblock.com/login" id="passportLoginLink"
-           class="mb-6 block w-full text-center bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded transition-colors">
-            前往通行证登录
-        </a>
-        <form method="post" action="/login">
-            <input type="hidden" name="next" id="loginNext" value="/">
-            <script>
-            (function () {
-              var p = new URLSearchParams(location.search);
-              var n = p.get('next');
-              if (n) document.getElementById('loginNext').value = n;
-              var link = document.getElementById('passportLoginLink');
-              if (link && n) {
-                var returnUrl = window.location.origin + n;
-                link.href = 'https://passport.potatoblock.com/login?return_url=' + encodeURIComponent(returnUrl);
-              }
-            })();
-            </script>
-            <div class="mb-4">
-                <label class="block text-sm text-gray-400 mb-1">用户名</label>
-                <input type="text" name="username" autocomplete="username" required
-                       class="w-full bg-gray-800 rounded px-3 py-2 text-white outline-none focus:ring-2 focus:ring-gray-600">
-            </div>
-            <div class="mb-6">
-                <label class="block text-sm text-gray-400 mb-1">密码</label>
-                <input type="password" name="password" autocomplete="current-password" required
-                       class="w-full bg-gray-800 rounded px-3 py-2 text-white outline-none focus:ring-2 focus:ring-gray-600">
-            </div>
-            <button type="submit"
-                    class="w-full bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded transition-colors">
-                登录
-            </button>
-        </form>
+        <p class="text-sm text-gray-400 text-center mb-6">使用 OAuth2 通行证登录（含人机验证）</p>
+        <button type="button" id="passportOAuthLogin" data-passport-login
+                class="mb-4 w-full text-center bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded transition-colors">
+            通行证 OAuth 登录
+        </button>
+        <script>
+        (function () {
+          var p = new URLSearchParams(location.search);
+          var n = p.get('next') || '/';
+          var btn = document.getElementById('passportOAuthLogin');
+          if (btn) btn.setAttribute('data-next', n);
+        })();
+        </script>
     </div>
+    <script src="/static/js/passport-login.js?v=5"></script>
 </body>
 </html>

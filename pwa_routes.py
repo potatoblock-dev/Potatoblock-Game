@@ -1,17 +1,20 @@
-"""PWA 与弹窗登录路由：挂载到 FastAPI 应用根路径。
+"""PWA 与 OAuth 登录路由：挂载到 FastAPI 应用根路径。
 
 由 app.games.register_routers 调用 attach_pwa_routes，无需改服务器 main.py。
 """
 
 from __future__ import annotations
 
+import importlib
+import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.games.common.room_registry import find_reconnect_session
+from app.oauth_bridge import exchange_authorization_code, validate_id_token
 from app.routers.auth import get_optional_identity, get_passport_nickname
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -63,11 +66,54 @@ def attach_pwa_routes(app: FastAPI) -> None:
 
     @app.get("/pwa/login-done", response_class=HTMLResponse, include_in_schema=False)
     async def pwa_login_done(request: Request) -> HTMLResponse:
-        """弹窗登录成功后通知 opener 并关闭。"""
+        """OAuth 回调页：用 code 换票并通知原标签页。"""
         return TEMPLATES.TemplateResponse(
             request=request,
             name="login_popup_done.html",
             context={},
+        )
+
+    @app.post("/pwa/oauth/callback", include_in_schema=False)
+    async def oauth_callback(request: Request) -> JSONResponse:
+        """服务端用 authorization code 换 OIDC token 并建立本站 session。"""
+        body = await request.json()
+        code = str(body.get("code") or "").strip()
+        code_verifier = str(body.get("code_verifier") or "").strip()
+        nonce = str(body.get("nonce") or "").strip() or None
+        if not code or not code_verifier:
+            return JSONResponse({"ok": False, "error": "missing code"}, status_code=400)
+        redirect_uri = str(body.get("redirect_uri") or "").strip()
+        if not redirect_uri:
+            redirect_uri = str(request.base_url).rstrip("/") + "/pwa/login-done"
+        host = request.url.hostname or ""
+        client_id = "potatoblock-game-dev" if host in ("localhost", "127.0.0.1") else "potatoblock-game"
+        os.environ["OAUTH_CLIENT_ID"] = client_id
+        try:
+            tokens = exchange_authorization_code(code, redirect_uri, code_verifier)
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        id_token = str(tokens.get("id_token") or "")
+        access_token = str(tokens.get("access_token") or "")
+        if not id_token:
+            return JSONResponse({"ok": False, "error": "missing id_token"}, status_code=400)
+        try:
+            claims = validate_id_token(id_token, nonce=nonce)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": f"invalid id_token: {exc}"}, status_code=400)
+        auth_mod = importlib.import_module("app.routers.auth")
+        handler = getattr(auth_mod, "establish_session_from_oidc", None)
+        if handler is None:
+            raise HTTPException(status_code=501, detail="oidc session bridge not configured")
+        json_resp = JSONResponse({"ok": True, "sub": claims.get("sub")})
+        await handler(request, json_resp, claims, access_token, id_token)
+        return json_resp
+
+    @app.post("/pwa/passport-session", include_in_schema=False)
+    async def passport_session(request: Request) -> JSONResponse:
+        """已废弃：请使用 OAuth /pwa/oauth/callback。"""
+        return JSONResponse(
+            {"ok": False, "error": "deprecated; use OAuth /pwa/oauth/callback"},
+            status_code=410,
         )
 
     @app.get("/api/me", include_in_schema=False)

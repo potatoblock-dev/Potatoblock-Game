@@ -45,7 +45,7 @@
       this.layersMeta = [];
       canvas.width = this.logicalWidth;
       canvas.height = this.logicalHeight;
-      canvas.style.backgroundColor = 'transparent';
+      canvas.style.backgroundColor = this.defaultBackground;
       this.applySmoothing();
     }
 
@@ -351,13 +351,14 @@
       this._redrawFlat(this.strokes);
     }
 
-    /** 图层模式下清空离屏缓冲为透明；无图层时沿用旧版纯色底。 */
-    _clearDrawBuffer(useTransparent) {
+    /** 图层模式下清空离屏缓冲为白底；无图层时沿用旧版纯色底。 */
+    _clearDrawBuffer(useLayerMode) {
       this.context.setTransform(1, 0, 0, 1, 0, 0);
-      if (useTransparent) {
-        this.context.clearRect(0, 0, this.logicalWidth, this.logicalHeight);
+      if (useLayerMode) {
+        this.context.fillStyle = this.defaultBackground;
+        this.context.fillRect(0, 0, this.logicalWidth, this.logicalHeight);
         this.backgroundColor = this.defaultBackground;
-        this.canvas.style.backgroundColor = 'transparent';
+        this.canvas.style.backgroundColor = this.defaultBackground;
         return;
       }
       let fillColor = this.defaultBackground;

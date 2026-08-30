@@ -1,122 +1,187 @@
-/** 通行证登录：桌面/PWA 弹窗；手机浏览器整页跳转 passport（带人机验证）。 */
+/** 通行证 OAuth2/OIDC 登录：新标签页 authorize + PKCE；原页等待 login-done。 */
 (function () {
   'use strict';
 
-  const POPUP_NAME = 'potatoblock-passport-login';
+  const TAB_NAME = 'potatoblock-passport-login';
   const MESSAGE_TYPE = 'pb-login-done';
+  const CHANNEL_NAME = 'potatoblock-passport-login';
   const PASSPORT_ORIGIN = 'https://passport.potatoblock.com';
+  const OAUTH_SCOPE = 'openid profile';
+  const PKCE_STORAGE = 'pb_oauth_pkce';
+  const CLIENT_ID_PROD = 'potatoblock-game';
+  const CLIENT_ID_DEV = 'potatoblock-game-dev';
 
-  function isStandalonePwa() {
-    return window.matchMedia('(display-mode: standalone)').matches
-      || window.navigator.standalone === true;
+  /** 登录完成后应回到的路径（相对本站）。 */
+  function defaultNextPath() {
+    return window.location.pathname + window.location.search;
   }
 
-  /** 手机浏览器（非主屏幕 PWA）仍整页跳转，避免小窗体验过差。 */
-  function isMobileBrowser() {
-    if (isStandalonePwa()) return false;
-    return window.matchMedia('(max-width: 767px)').matches
-      || window.matchMedia('(pointer: coarse)').matches
-      || navigator.maxTouchPoints > 1;
+  /** 按环境选择 OAuth client_id。 */
+  function oauthClientId() {
+    var host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return CLIENT_ID_DEV;
+    }
+    return CLIENT_ID_PROD;
   }
 
-  function passportLoginUrl(returnPath) {
-    const next = returnPath || window.location.pathname + window.location.search;
-    const returnUrl = window.location.origin + next;
-    return PASSPORT_ORIGIN + '/login?return_url=' + encodeURIComponent(returnUrl);
+  /** OAuth redirect_uri，须与 Passport 注册一致。 */
+  function oauthRedirectUri() {
+    return window.location.origin + '/pwa/login-done';
   }
 
-  /** 弹窗完成后的 return 地址：先落到 login-done，再 postMessage 父页。 */
-  function passportPopupUrl(nextPath) {
-    const next = nextPath || window.location.pathname + window.location.search;
-    const done = '/pwa/login-done?return=' + encodeURIComponent(next);
-    const returnUrl = window.location.origin + done;
-    return PASSPORT_ORIGIN + '/login?return_url=' + encodeURIComponent(returnUrl);
+  /** 生成 PKCE verifier/challenge 与 state/nonce。 */
+  function randomString(bytes) {
+    var arr = new Uint8Array(bytes);
+    crypto.getRandomValues(arr);
+    return btoa(String.fromCharCode.apply(null, arr))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  /** 整页跳转 passport；返回 pending，避免 then 里 reload 打断导航。 */
-  function redirectToPassport(nextPath) {
-    window.location.assign(passportLoginUrl(nextPath));
-    return new Promise(function () {});
+  async function sha256Base64Url(input) {
+    var data = new TextEncoder().encode(input);
+    var hash = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  /** 监听弹窗内 login-done 的 postMessage，或弹窗被关闭。 */
-  function waitForLoginPopup(popup) {
+  /** 创建并 sessionStorage 保存 PKCE 上下文。 */
+  async function createPkceContext(returnPath) {
+    var verifier = randomString(32);
+    var challenge = await sha256Base64Url(verifier);
+    var ctx = {
+      verifier: verifier,
+      state: randomString(16),
+      nonce: randomString(16),
+      return: returnPath || defaultNextPath()
+    };
+    sessionStorage.setItem(PKCE_STORAGE, JSON.stringify(ctx));
+    try { localStorage.setItem(PKCE_STORAGE, JSON.stringify(ctx)); } catch (e) {}
+    return { ctx: ctx, challenge: challenge };
+  }
+
+  /** 构建 OAuth authorize URL。 */
+  async function oauthAuthorizeUrl(nextPath) {
+    var built = await createPkceContext(nextPath);
+    var params = new URLSearchParams({
+      client_id: oauthClientId(),
+      redirect_uri: oauthRedirectUri(),
+      response_type: 'code',
+      scope: OAUTH_SCOPE,
+      state: built.ctx.state,
+      code_challenge: built.challenge,
+      code_challenge_method: 'S256',
+      nonce: built.ctx.nonce
+    });
+    return PASSPORT_ORIGIN + '/oauth/authorize?' + params.toString();
+  }
+
+  /** 登录成功后跳转到 return 路径或刷新当前页。 */
+  function finishLogin(data) {
+    var ret = (data && data.return) ? String(data.return) : defaultNextPath();
+    if (ret.charAt(0) === '/') {
+      window.location.assign(ret);
+    } else {
+      window.location.reload();
+    }
+  }
+
+  /** 原标签页等待 login-done 通知。 */
+  function waitForLoginComplete(loginTab) {
     return new Promise(function (resolve, reject) {
+      var settled = false;
+      var channel = null;
+      var pollTimer = null;
+      var closeTimer = null;
+
       function cleanup() {
         window.removeEventListener('message', onMessage);
-        clearInterval(timer);
+        document.removeEventListener('visibilitychange', onVisibility);
+        if (channel) {
+          try { channel.close(); } catch (err) {}
+        }
+        clearInterval(pollTimer);
+        clearInterval(closeTimer);
+      }
+
+      function finish(ok, data, err) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (ok) resolve(data || { ok: true });
+        else reject(err || new Error('login cancelled'));
       }
 
       function onMessage(event) {
         if (event.origin !== window.location.origin) return;
-        const data = event.data || {};
-        if (data.type !== MESSAGE_TYPE) return;
-        cleanup();
-        try { popup.close(); } catch (err) {}
-        if (data.ok) resolve(data);
-        else reject(new Error(data.error || 'login failed'));
+        var payload = event.data || {};
+        if (payload.type !== MESSAGE_TYPE) return;
+        finish(!!payload.ok, payload, payload.ok ? null : new Error(payload.error || 'login failed'));
+      }
+
+      function pollMe() {
+        fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' })
+          .then(function (response) {
+            if (!response.ok) return null;
+            return response.json();
+          })
+          .then(function (data) {
+            if (data && data.user_id) {
+              finish(true, { ok: true, via: 'poll', return: defaultNextPath() });
+            }
+          })
+          .catch(function () {});
+      }
+
+      function onVisibility() {
+        if (document.visibilityState === 'visible') pollMe();
       }
 
       window.addEventListener('message', onMessage);
-      const timer = setInterval(function () {
-        if (!popup || popup.closed) {
-          cleanup();
-          reject(new Error('popup closed'));
-        }
+      document.addEventListener('visibilitychange', onVisibility);
+
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel(CHANNEL_NAME);
+        channel.onmessage = function (event) {
+          var payload = event.data || {};
+          if (payload.type !== MESSAGE_TYPE) return;
+          finish(!!payload.ok, payload, payload.ok ? null : new Error(payload.error || 'login failed'));
+        };
+      }
+
+      pollTimer = setInterval(pollMe, 2000);
+      closeTimer = setInterval(function () {
+        if (!loginTab || !loginTab.closed) return;
+        pollMe();
+        setTimeout(function () {
+          if (!settled) finish(false, null, new Error('login tab closed'));
+        }, 800);
       }, 500);
     });
   }
 
-  /** 打开通行证登录弹窗；blocked 时回退整页跳转。 */
-  function openPassportPopup(nextPath) {
-    const url = passportPopupUrl(nextPath);
-    const w = Math.min(window.screen.width - 16, 440);
-    const h = Math.min(window.screen.height - 24, isStandalonePwa() ? 680 : 560);
-    const left = Math.max(0, (window.screen.width - w) / 2);
-    const top = Math.max(0, (window.screen.height - h) / 2);
-    const features = 'popup=yes,width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
-    const popup = window.open(url, POPUP_NAME, features);
-    if (!popup) {
-      return redirectToPassport(nextPath);
-    }
-    return waitForLoginPopup(popup);
-  }
-
-  /** 桌面浏览器：游戏站 login 弹窗（与原有网页版一致）。 */
-  function openGameLoginPopup(nextPath) {
-    const next = nextPath || window.location.pathname + window.location.search;
-    const done = '/pwa/login-done?return=' + encodeURIComponent(next);
-    const url = '/login?popup=1&next=' + encodeURIComponent(done);
-    const w = 420;
-    const h = 560;
-    const left = Math.max(0, (window.screen.width - w) / 2);
-    const top = Math.max(0, (window.screen.height - h) / 2);
-    const features = 'popup=yes,width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
-    const popup = window.open(url, POPUP_NAME, features);
-    if (!popup) {
-      return redirectToPassport(nextPath);
-    }
-    return waitForLoginPopup(popup);
+  /** 新标签页打开 OAuth authorize。 */
+  function openLoginTab(nextPath) {
+    return oauthAuthorizeUrl(nextPath).then(function (url) {
+      var tab = window.open(url, TAB_NAME);
+      if (!tab) {
+        window.location.assign(url);
+        return new Promise(function () {});
+      }
+      return waitForLoginComplete(tab);
+    });
   }
 
   function loginPopup(nextPath) {
-    if (isStandalonePwa()) {
-      return openPassportPopup(nextPath);
-    }
-    if (isMobileBrowser()) {
-      return redirectToPassport(nextPath);
-    }
-    return openGameLoginPopup(nextPath);
+    return openLoginTab(nextPath);
   }
 
   function bindLoginButtons() {
     document.querySelectorAll('[data-passport-login]').forEach(function (el) {
       el.addEventListener('click', function (e) {
         e.preventDefault();
-        const next = el.getAttribute('data-next') || '/';
-        loginPopup(next).then(function () {
-          window.location.reload();
-        }).catch(function () {});
+        var next = el.getAttribute('data-next') || defaultNextPath();
+        loginPopup(next).then(finishLogin).catch(function () {});
       });
     });
   }
@@ -130,7 +195,8 @@
   window.PotatoblockPassportLogin = {
     loginPopup: loginPopup,
     MESSAGE_TYPE: MESSAGE_TYPE,
-    passportLoginUrl: passportLoginUrl,
-    isStandalonePwa: isStandalonePwa,
+    oauthAuthorizeUrl: oauthAuthorizeUrl,
+    oauthRedirectUri: oauthRedirectUri,
+    PKCE_STORAGE: PKCE_STORAGE
   };
 })();

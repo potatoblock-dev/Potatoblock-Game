@@ -146,7 +146,7 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
 
 
 def default_layers() -> List[Dict[str, object]]:
-    """返回默认双层：底白底、顶透明绘画层（Krita 式）。"""
+    """返回默认双层：底白底、顶绘画层（Krita 式）。"""
     return [
         {
             "layer_id": DEFAULT_BG_LAYER_ID,
@@ -231,6 +231,23 @@ def repair_orphan_layers(board: Dict) -> None:
             layer["parent_id"] = None
 
 
+def ensure_background_stroke(board: Dict) -> None:
+    """确保背景层存在系统白底笔迹（旧画板迁移）。"""
+    strokes = board.setdefault("strokes", [])
+    layer_ids = {str(layer.get("layer_id") or "") for layer in board.get("layers") or []}
+    if DEFAULT_BG_LAYER_ID not in layer_ids:
+        layers = board.setdefault("layers", [])
+        layers.insert(0, default_layers()[0])
+        for index, layer in enumerate(layers):
+            layer["order"] = index
+    has_bg = any(
+        str(stroke.get("stroke_id") or "") == DEFAULT_BG_STROKE_ID
+        for stroke in strokes
+    )
+    if not has_bg:
+        board["strokes"] = list(default_background_strokes()) + list(strokes)
+
+
 def migrate_board_layers(board: Dict) -> None:
     """旧画板补全 layers 与 stroke.layer_id。"""
     if "layers" not in board or not board["layers"]:
@@ -245,6 +262,7 @@ def migrate_board_layers(board: Dict) -> None:
     for stroke in board.get("strokes") or []:
         if "layer_id" not in stroke:
             stroke["layer_id"] = DEFAULT_LAYER_ID
+    ensure_background_stroke(board)
 
 
 def serialize_layers(layers: List[Dict]) -> List[Dict[str, object]]:
