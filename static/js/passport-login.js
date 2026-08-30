@@ -19,10 +19,15 @@
     return PASSPORT_ORIGIN + '/login?return_url=' + encodeURIComponent(returnUrl);
   }
 
+  /** 移动端/PWA：整页跳转 passport；返回 pending，避免 then 里 reload 打断导航。 */
+  function redirectToPassport(nextPath) {
+    window.location.assign(passportLoginUrl(nextPath));
+    return new Promise(function () {});
+  }
+
   function loginPopup(nextPath) {
     if (isMobileLike()) {
-      window.location.href = passportLoginUrl(nextPath);
-      return Promise.resolve({ ok: true, redirected: true });
+      return redirectToPassport(nextPath);
     }
 
     const next = nextPath || window.location.pathname + window.location.search;
@@ -35,8 +40,7 @@
     const features = 'popup=yes,width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
     const popup = window.open(url, POPUP_NAME, features);
     if (!popup) {
-      window.location.href = passportLoginUrl(nextPath);
-      return Promise.resolve({ ok: true, redirected: true });
+      return redirectToPassport(nextPath);
     }
     return new Promise((resolve, reject) => {
       function onMessage(event) {
