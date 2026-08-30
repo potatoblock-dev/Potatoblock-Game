@@ -85,10 +85,13 @@
     });
   }
 
-  /** 打开 passport 登录；移动端整页跳转。 */
+  /** 打开 passport 登录；移动端整页跳转，返回后轮询 /api/me。 */
   function loginPopup(nextPath) {
     var url = passportLoginUrl(nextPath);
     if (isMobileLike()) {
+      try {
+        sessionStorage.setItem('pb_passport_pending', nextPath || defaultNextPath());
+      } catch (_err) {}
       window.location.assign(url);
       return new Promise(function () {});
     }
@@ -125,10 +128,43 @@
     });
   }
 
+  /** 平板/PWA 从 passport 返回后若 session 已写入则自动刷新登录态。 */
+  function watchMobileLoginReturn() {
+    if (!isMobileLike()) return;
+    var pending = '';
+    try {
+      pending = sessionStorage.getItem('pb_passport_pending') || '';
+    } catch (_err) {}
+    if (!pending) return;
+
+    function pollMe() {
+      fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok) return null;
+          return response.json();
+        })
+        .then(function (data) {
+          if (!data || !data.user_id) return;
+          try { sessionStorage.removeItem('pb_passport_pending'); } catch (_e) {}
+          finishLogin({ return: pending });
+        })
+        .catch(function () {});
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') pollMe();
+    });
+    pollMe();
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindLoginButtons);
+    document.addEventListener('DOMContentLoaded', function () {
+      bindLoginButtons();
+      watchMobileLoginReturn();
+    });
   } else {
     bindLoginButtons();
+    watchMobileLoginReturn();
   }
 
   window.PotatoblockPassportLogin = {

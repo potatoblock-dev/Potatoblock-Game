@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
@@ -25,6 +25,37 @@ TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "templates"))
 SW_PATH = APP_ROOT / "static" / "js" / "service-worker.js"
 MANIFEST_PATH = APP_ROOT / "static" / "manifest.webmanifest"
 FAVICON_PATH = APP_ROOT / "static" / "icons" / "favicon.ico"
+PASSPORT_ORIGIN = "https://passport.potatoblock.com"
+
+
+def _passport_cors_headers(request: Request) -> dict[str, str]:
+    """允许 passport 站跨域调用 passport-session（fetch 桥接备用）。"""
+    origin = (request.headers.get("origin") or "").strip()
+    if origin == PASSPORT_ORIGIN:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
+
+def _bridge_error_response(
+    request: Request,
+    *,
+    message: str,
+    status_code: int,
+    wants_json: bool,
+) -> HTMLResponse | JSONResponse:
+    """表单 POST 失败时返回 HTML 错误页，避免平板出现 JSON 白屏。"""
+    if wants_json:
+        return JSONResponse({"ok": False, "error": message}, status_code=status_code)
+    retry = f"{PASSPORT_ORIGIN}/login"
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="passport_bridge_error.html",
+        context={"message": message, "retry_url": retry},
+        status_code=status_code,
+    )
 
 
 async def _resolve_display_nickname(user_id: str, nickname: str) -> str:
@@ -132,13 +163,22 @@ def attach_pwa_routes(app: FastAPI) -> None:
         await handler(request, json_resp, claims, access_token, id_token)
         return json_resp
 
+    @app.options("/pwa/passport-session", include_in_schema=False)
+    async def passport_session_options(request: Request) -> Response:
+        """CORS 预检：passport 桥接页 fetch 备用。"""
+        headers = _passport_cors_headers(request)
+        headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return Response(status_code=204, headers=headers)
+
     @app.post("/pwa/passport-session", include_in_schema=False)
     async def passport_session(request: Request):
         """Passport JWT 桥接：校验 token 后写入本站 session（旧登录后端）。"""
         token = ""
         return_url = "/"
         content_type = (request.headers.get("content-type") or "").lower()
-        if "application/json" in content_type:
+        wants_json = "application/json" in content_type
+        if wants_json:
             body = await request.json()
             token = str(body.get("token") or "").strip()
             return_url = str(body.get("return") or body.get("return_url") or "/")
@@ -147,13 +187,28 @@ def attach_pwa_routes(app: FastAPI) -> None:
             token = str(form.get("token") or "").strip()
             return_url = str(form.get("return") or form.get("return_url") or "/")
 
+        cors = _passport_cors_headers(request)
+
         if not token:
-            return JSONResponse({"ok": False, "error": "missing token"}, status_code=400)
+            resp = _bridge_error_response(
+                request, message="缺少登录凭证，请重新登录。", status_code=400, wants_json=wants_json
+            )
+            if cors and isinstance(resp, JSONResponse):
+                resp.headers.update(cors)
+            return resp
 
         try:
             profile = await run_in_threadpool(fetch_passport_profile, token)
         except ValueError as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=401)
+            resp = _bridge_error_response(
+                request,
+                message=f"通行证验证失败（{exc}），请重新登录。",
+                status_code=401,
+                wants_json=wants_json,
+            )
+            if cors and isinstance(resp, JSONResponse):
+                resp.headers.update(cors)
+            return resp
 
         auth_mod = importlib.import_module("app.routers.auth")
         handler = getattr(auth_mod, "establish_session_from_passport_token", None)
@@ -165,8 +220,10 @@ def attach_pwa_routes(app: FastAPI) -> None:
             request.session["nickname"] = profile.get("nickname") or ""
 
         safe_return = _safe_return_url(return_url, request)
-        if "application/json" in content_type:
-            return JSONResponse({"ok": True, "user_id": profile["user_id"], "return": safe_return})
+        if wants_json:
+            resp = JSONResponse({"ok": True, "user_id": profile["user_id"], "return": safe_return})
+            resp.headers.update(cors)
+            return resp
         return RedirectResponse(url=safe_return, status_code=303)
 
     @app.get("/api/me", include_in_schema=False)
