@@ -261,6 +261,10 @@
         boardController.saveLocalPbccSnapshot();
       }
     }
+    if (session.roomId) {
+      session.leaveRoom();
+      return;
+    }
     session.disconnect();
     cursorOverlay.clear();
     showJoinScreen('');
@@ -309,13 +313,20 @@
         }
       },
       close: () => {
+        if (session._reconnecting || (session.roomId && session.lastError === '连接已断开，正在重新连接…')) {
+          setStatus(session.lastError);
+          return;
+        }
         const msg = session.lastError || '连接已断开，请刷新页面';
+        cursorOverlay.clear();
         if (roomScreen && roomScreen.classList.contains('hidden')) {
           setJoinError(msg);
           setStatus('');
           return;
         }
-        setStatus(msg);
+        setJoinError(msg);
+        setStatus('');
+        showJoinScreen(msg);
       },
       room_removed: data => {
         session.disconnect();

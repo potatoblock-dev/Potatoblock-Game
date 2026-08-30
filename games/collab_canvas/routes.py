@@ -70,7 +70,7 @@ GAME_DIR = Path(__file__).resolve().parent
 GAME_ID = "collab_canvas"
 STATIC_URL = "/static/games/collab-canvas"
 # 静态资源 ?v= 版本号；改 JS/CSS 后递增以便生产绕过浏览器缓存。
-COLLAB_ASSET_VERSION = "20260830g"
+COLLAB_ASSET_VERSION = "20260830h"
 
 game_info = {
     "id": GAME_ID,
@@ -473,6 +473,8 @@ async def handle_player_disconnect(
         {"type": "player_leave", "player_id": player_id, "name": current["name"], "temporary": True},
         exclude_id=player_id,
     )
+    if room_id in rooms:
+        await broadcast_room_state_light(room)
     asyncio.create_task(remove_disconnected_player_after_timeout(room_id, player_id, room, token))
 
 
@@ -723,7 +725,12 @@ async def collab_websocket(websocket: WebSocket):
                 player_id = str(passport_user_id)
                 if timed_out_rooms.get(player_id) == requested_room_id:
                     del timed_out_rooms[player_id]
-
+                    await send_json(
+                        websocket,
+                        {"type": "room_removed", "message": "已退出房间"},
+                    )
+                    await websocket.close(code=4004)
+                    return
                 await evict_from_other_games(GAME_ID, player_id)
                 occupied = player_rooms.get(player_id)
                 if occupied and occupied != requested_room_id:
@@ -742,6 +749,8 @@ async def collab_websocket(websocket: WebSocket):
                                 await old_ws.close(code=4004)
                             except Exception:
                                 pass
+                    elif player_id in player_rooms:
+                        del player_rooms[player_id]
 
                 room_id = requested_room_id
                 room = rooms.setdefault(room_id, create_room(room_id))
@@ -1220,7 +1229,7 @@ async def collab_websocket(websocket: WebSocket):
                 if not is_room_host(room, player_id):
                     await send_error(websocket, "仅房主可踢出玩家")
                     continue
-                target_id = str(data.get("target_id") or "").strip()
+                target_id = str(data.get("target_id") or data.get("player_id") or "").strip()
                 if not target_id or target_id not in room["players"]:
                     await send_error(websocket, "目标玩家不在房间")
                     continue
@@ -1229,19 +1238,36 @@ async def collab_websocket(websocket: WebSocket):
                     continue
                 target = room["players"][target_id]
                 target_ws = target.get("ws")
+                target_name = str(target.get("name") or "玩家")
                 if target_ws:
                     try:
                         await send_json(
                             target_ws,
                             {"type": "room_removed", "message": "你已被房主移出房间"},
                         )
-                        await target_ws.close(code=4003)
                     except Exception:
                         pass
                 await remove_player_from_room(
-                    room_id, target_id, f"{target.get('name', '玩家')} 已被移出房间"
+                    room_id, target_id, f"{target_name} 已被移出房间"
                 )
+                if target_ws:
+                    try:
+                        await target_ws.close(code=4003)
+                    except Exception:
+                        pass
                 continue
+
+            if msg_type in {"leave_room", "leave_game"}:
+                leave_name = str(pdata.get("name") or "玩家")
+                await send_json(
+                    websocket,
+                    {"type": "room_removed", "message": "已退出房间"},
+                )
+                await remove_player_from_room(
+                    room_id, player_id, f"{leave_name} 离开了房间"
+                )
+                await websocket.close(code=4004)
+                return
 
             if msg_type in {"draw", "draw_batch"}:
                 if not player_can_draw(room, player_id):

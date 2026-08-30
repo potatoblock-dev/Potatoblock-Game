@@ -24,6 +24,9 @@
       this.lastRtt = null;
       this.lastPingAt = null;
       this.lastError = '';
+      this._intentionalLeave = false;
+      this._reconnectTimer = null;
+      this._reconnecting = false;
     }
 
     connect() {
@@ -47,7 +50,30 @@
       });
       this.ws.addEventListener('close', event => {
         this.connected = false;
+        const wasInRoom = Boolean(this.roomId);
+        const savedRoom = this.roomId;
         this.ws = null;
+        if (event && event.code === 4000) return;
+        if (event && (event.code === 4002 || event.code === 4003 || event.code === 4004)) {
+          this._clearReconnectTimer();
+          if (event.code === 4002) {
+            this.lastError = '该账号已在另一个页面连接';
+          } else if (event.code === 4003) {
+            this.lastError = '你已被房主移出房间';
+          } else if (event.code === 4004) {
+            this.lastError = this._intentionalLeave ? '' : '已退出房间';
+          }
+          this._intentionalLeave = false;
+          this.roomId = '';
+          this._emit('close', event);
+          return;
+        }
+        if (wasInRoom && savedRoom && !this._intentionalLeave) {
+          this.lastError = '连接已断开，正在重新连接…';
+          this._emit('close', event);
+          this._scheduleReconnect(savedRoom);
+          return;
+        }
         if (!this.roomId && this.lastError === 'WebSocket 连接失败') {
           this._emit('close', event);
           return;
@@ -194,6 +220,8 @@
     }
 
     joinRoom(roomId) {
+      this._clearReconnectTimer();
+      this._intentionalLeave = false;
       this.roomId = String(roomId || '').trim().toUpperCase().slice(0, 6);
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
         this._pendingJoin = { room: this.roomId };
@@ -202,6 +230,40 @@
       }
       const displayName = this.getDisplayName ? this.getDisplayName() : this.nickname;
       this.send({ type: 'join', room: this.roomId, name: displayName });
+    }
+
+    /** 主动离开房间：通知服务端后等待 4004 关闭。 */
+    leaveRoom() {
+      this._intentionalLeave = true;
+      this._clearReconnectTimer();
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.send({ type: 'leave_room' });
+        return;
+      }
+      this.roomId = '';
+      this.disconnect();
+    }
+
+    _clearReconnectTimer() {
+      if (this._reconnectTimer) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+      }
+    }
+
+    /** 断线后自动重连并重新 join（对齐你画我猜）。 */
+    _scheduleReconnect(roomId) {
+      if (this._reconnectTimer || this._intentionalLeave) return;
+      const targetRoom = String(roomId || '').trim().toUpperCase().slice(0, 6);
+      if (!targetRoom) return;
+      this._reconnectTimer = setTimeout(() => {
+        this._reconnectTimer = null;
+        if (this._intentionalLeave) return;
+        this._reconnecting = true;
+        this.roomId = targetRoom;
+        this._pendingJoin = { room: targetRoom };
+        this.connect();
+      }, 1500);
     }
 
     sendCursor(boardId, x, y, drawing, extras) {
@@ -260,6 +322,8 @@
       if (handler) handler(data);
       if (type === 'room_state' && data.room_id) {
         this.roomId = data.room_id;
+        this._reconnecting = false;
+        this.lastError = '';
       }
     }
 
@@ -269,10 +333,14 @@
     }
 
     disconnect() {
+      this._clearReconnectTimer();
+      this._intentionalLeave = true;
       if (this.ws) {
-        this.ws.close();
+        this.ws.close(4000);
         this.ws = null;
       }
+      this.roomId = '';
+      this.connected = false;
     }
 
     /** 房主：设置房客权限；target_id 省略则作用于全部房客。 */
