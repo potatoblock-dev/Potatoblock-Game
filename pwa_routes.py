@@ -8,13 +8,16 @@ from __future__ import annotations
 import importlib
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from app.games.common.room_registry import find_reconnect_session
 from app.oauth_bridge import exchange_authorization_code, validate_id_token
+from app.passport_token import fetch_passport_profile
 from app.routers.auth import get_optional_identity, get_passport_nickname
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -31,6 +34,27 @@ async def _resolve_display_nickname(user_id: str, nickname: str) -> str:
         return nick
     fresh = await get_passport_nickname(user_id)
     return str(fresh or "").strip()
+
+
+def _safe_return_url(raw: str | None, request: Request) -> str:
+    """仅允许站内相对路径回跳。"""
+    if not raw:
+        return "/"
+    try:
+        parsed = urlsplit(str(raw).strip())
+    except ValueError:
+        return "/"
+    if parsed.scheme or parsed.netloc:
+        if parsed.netloc and parsed.netloc != request.url.netloc:
+            return "/"
+        path = parsed.path or "/"
+        if not path.startswith("/"):
+            return "/"
+        return path + (f"?{parsed.query}" if parsed.query else "")
+    path = parsed.path or str(raw)
+    if not path.startswith("/"):
+        return "/"
+    return path + (f"?{parsed.query}" if parsed.query else "")
 
 
 def attach_pwa_routes(app: FastAPI) -> None:
@@ -109,12 +133,41 @@ def attach_pwa_routes(app: FastAPI) -> None:
         return json_resp
 
     @app.post("/pwa/passport-session", include_in_schema=False)
-    async def passport_session(request: Request) -> JSONResponse:
-        """已废弃：请使用 OAuth /pwa/oauth/callback。"""
-        return JSONResponse(
-            {"ok": False, "error": "deprecated; use OAuth /pwa/oauth/callback"},
-            status_code=410,
-        )
+    async def passport_session(request: Request):
+        """Passport JWT 桥接：校验 token 后写入本站 session（旧登录后端）。"""
+        token = ""
+        return_url = "/"
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "application/json" in content_type:
+            body = await request.json()
+            token = str(body.get("token") or "").strip()
+            return_url = str(body.get("return") or body.get("return_url") or "/")
+        else:
+            form = await request.form()
+            token = str(form.get("token") or "").strip()
+            return_url = str(form.get("return") or form.get("return_url") or "/")
+
+        if not token:
+            return JSONResponse({"ok": False, "error": "missing token"}, status_code=400)
+
+        try:
+            profile = await run_in_threadpool(fetch_passport_profile, token)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=401)
+
+        auth_mod = importlib.import_module("app.routers.auth")
+        handler = getattr(auth_mod, "establish_session_from_passport_token", None)
+        if handler is not None:
+            await handler(request, token)
+        else:
+            request.session.clear()
+            request.session["user_id"] = profile["user_id"]
+            request.session["nickname"] = profile.get("nickname") or ""
+
+        safe_return = _safe_return_url(return_url, request)
+        if "application/json" in content_type:
+            return JSONResponse({"ok": True, "user_id": profile["user_id"], "return": safe_return})
+        return RedirectResponse(url=safe_return, status_code=303)
 
     @app.get("/api/me", include_in_schema=False)
     async def current_user(identity=Depends(get_optional_identity)) -> JSONResponse:
