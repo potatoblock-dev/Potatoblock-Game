@@ -27,6 +27,7 @@
       this._intentionalLeave = false;
       this._reconnectTimer = null;
       this._reconnecting = false;
+      this._inRoom = false;
     }
 
     connect() {
@@ -50,7 +51,7 @@
       });
       this.ws.addEventListener('close', event => {
         this.connected = false;
-        const wasInRoom = Boolean(this.roomId);
+        const wasInRoom = this._inRoom && Boolean(this.roomId);
         const savedRoom = this.roomId;
         this.ws = null;
         if (event && event.code === 4000) return;
@@ -64,7 +65,9 @@
             this.lastError = this._intentionalLeave ? '' : '已退出房间';
           }
           this._intentionalLeave = false;
+          this._inRoom = false;
           this.roomId = '';
+          this._pendingJoin = null;
           this._emit('close', event);
           return;
         }
@@ -75,6 +78,7 @@
           return;
         }
         if (!this.roomId && this.lastError === 'WebSocket 连接失败') {
+          this._pendingJoin = null;
           this._emit('close', event);
           return;
         }
@@ -83,6 +87,7 @@
         } else if (!this.roomId && event && event.code !== 1000) {
           this.lastError = '无法连接服务器，请刷新后重试';
         }
+        this._pendingJoin = null;
         this._emit('close', event);
       });
       this.ws.addEventListener('message', event => {
@@ -163,7 +168,7 @@
         connected: this.connected,
         readyState: this.ws ? this.ws.readyState : WebSocket.CLOSED,
         statusLabel,
-        roomId: this.roomId || '',
+        roomId: this.roomId || (this._pendingJoin && this._pendingJoin.room) || '',
         lastRtt: this.lastRtt,
         lastPingAt: this.lastPingAt,
         lastError: this.lastError
@@ -222,14 +227,16 @@
     joinRoom(roomId) {
       this._clearReconnectTimer();
       this._intentionalLeave = false;
-      this.roomId = String(roomId || '').trim().toUpperCase().slice(0, 6);
+      const target = String(roomId || '').trim().toUpperCase().slice(0, 6);
+      if (!target) return;
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        this._pendingJoin = { room: this.roomId };
+        this._pendingJoin = { room: target };
         this.connect();
         return;
       }
       const displayName = this.getDisplayName ? this.getDisplayName() : this.nickname;
-      this.send({ type: 'join', room: this.roomId, name: displayName });
+      this._pendingJoin = { room: target };
+      this.send({ type: 'join', room: target, name: displayName });
     }
 
     /** 主动离开房间：通知服务端后等待 4004 关闭。 */
@@ -322,6 +329,8 @@
       if (handler) handler(data);
       if (type === 'room_state' && data.room_id) {
         this.roomId = data.room_id;
+        this._inRoom = true;
+        this._pendingJoin = null;
         this._reconnecting = false;
         this.lastError = '';
       }
@@ -339,7 +348,9 @@
         this.ws.close(4000);
         this.ws = null;
       }
+      this._inRoom = false;
       this.roomId = '';
+      this._pendingJoin = null;
       this.connected = false;
     }
 

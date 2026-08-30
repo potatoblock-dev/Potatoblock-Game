@@ -70,7 +70,7 @@ GAME_DIR = Path(__file__).resolve().parent
 GAME_ID = "collab_canvas"
 STATIC_URL = "/static/games/collab-canvas"
 # 静态资源 ?v= 版本号；改 JS/CSS 后递增以便生产绕过浏览器缓存。
-COLLAB_ASSET_VERSION = "20260830h"
+COLLAB_ASSET_VERSION = "20260830i"
 
 game_info = {
     "id": GAME_ID,

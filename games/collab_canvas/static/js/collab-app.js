@@ -301,6 +301,7 @@
       },
       error: data => {
         const msg = (data && data.message) || session.lastError || '连接失败';
+        resetJoinControls();
         if (boardController) {
           boardController._clearPendingLayerCreate();
           boardController.cancelPbccRestorePending(msg);
@@ -313,10 +314,11 @@
         }
       },
       close: () => {
-        if (session._reconnecting || (session.roomId && session.lastError === '连接已断开，正在重新连接…')) {
+        if (session._reconnecting || (session._inRoom && session.roomId && session.lastError === '连接已断开，正在重新连接…')) {
           setStatus(session.lastError);
           return;
         }
+        resetJoinControls();
         const msg = session.lastError || '连接已断开，请刷新页面';
         cursorOverlay.clear();
         if (roomScreen && roomScreen.classList.contains('hidden')) {
@@ -330,10 +332,12 @@
       },
       room_removed: data => {
         session.disconnect();
+        resetJoinControls();
         cursorOverlay.clear();
         showJoinScreen(data.message || '已离开房间');
       },
       room_state: data => {
+        resetJoinControls();
         showRoomScreen(data.room_id);
         boardController.setSelfId(data.self_id);
         cursorOverlay.setSelfId(data.self_id);
@@ -567,12 +571,19 @@
     }
     setJoinError('');
     setStatus('正在进入房间…');
+    const joinBtn = document.getElementById('joinBtn');
+    if (joinBtn) joinBtn.disabled = true;
     pendingRestoreLocal = Boolean(restoreCheckbox && restoreCheckbox.checked);
     if (global.PbccLocalStore) {
       PbccLocalStore.setRestorePref(pendingRestoreLocal);
     }
     restoreAttempted = false;
     session.joinRoom(id);
+  }
+
+  function resetJoinControls() {
+    const joinBtn = document.getElementById('joinBtn');
+    if (joinBtn) joinBtn.disabled = false;
   }
 
   if (restoreCheckbox && global.PbccLocalStore) {
@@ -600,22 +611,29 @@
     });
   }
 
-  document.getElementById('joinBtn').addEventListener('click', () => {
-    enterRoom(roomInput.value);
-  });
+  const joinBtn = document.getElementById('joinBtn');
+  if (joinBtn) {
+    joinBtn.addEventListener('click', () => {
+      enterRoom(roomInput.value);
+    });
+  }
 
-  document.getElementById('randomRoomBtn').addEventListener('click', async () => {
-    try {
-      const response = await fetch('/collab-canvas/random-room', { headers: { Accept: 'application/json' } });
-      if (!response.ok) throw new Error('获取随机房间号失败');
-      const data = await response.json();
-      if (data.room_id) roomInput.value = data.room_id;
-    } catch (err) {
-      setJoinError(err.message || '获取随机房间号失败');
-    }
-  });
+  const randomRoomBtn = document.getElementById('randomRoomBtn');
+  if (randomRoomBtn) {
+    randomRoomBtn.addEventListener('click', async () => {
+      try {
+        const response = await fetch('/collab-canvas/random-room', { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error('获取随机房间号失败');
+        const data = await response.json();
+        if (data.room_id) roomInput.value = data.room_id;
+      } catch (err) {
+        setJoinError(err.message || '获取随机房间号失败');
+      }
+    });
+  }
 
-  document.getElementById('leaveRoomBtn').addEventListener('click', () => leaveRoom());
+  const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+  if (leaveRoomBtn) leaveRoomBtn.addEventListener('click', () => leaveRoom());
 
   roomInput.addEventListener('keydown', event => {
     if (event.key === 'Enter') enterRoom(roomInput.value);
@@ -628,6 +646,7 @@
     pendingRestoreLocal = Boolean(restoreCheckbox && restoreCheckbox.checked);
     restoreAttempted = false;
     setStatus('正在进入房间…');
+    if (joinBtn) joinBtn.disabled = true;
     session.joinRoom(pathRoom);
   }
 
