@@ -1,10 +1,14 @@
-/** 通行证登录：跳转 passport 站（新人机验证）；桌面可弹窗，移动端整页跳转。 */
+/** 通行证登录：OAuth2 + PKCE（与 Passport OIDC 对齐；桌面弹窗 / 移动端整页）。 */
 (function () {
   'use strict';
 
   const POPUP_NAME = 'potatoblock-passport-login';
   const MESSAGE_TYPE = 'pb-login-done';
+  const PKCE_STORAGE = 'pb_oauth_pkce';
   const PASSPORT_ORIGIN = 'https://passport.potatoblock.com';
+  const OAUTH_CLIENT_ID = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'potatoblock-game-dev'
+    : 'potatoblock-game';
 
   /** 登录完成后应回到的路径（相对本站）。 */
   function defaultNextPath() {
@@ -18,11 +22,58 @@
     return 'ontouchstart' in window && window.matchMedia('(pointer: coarse)').matches;
   }
 
-  /** 构建 passport 登录 URL（return_url 回游戏站，经 SSO 桥接写 session）。 */
-  function passportLoginUrl(nextPath) {
+  /** Base64url 编码（PKCE / state）。 */
+  function base64UrlEncode(bytes) {
+    var binary = '';
+    for (var i = 0; i < bytes.length; i += 1) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  /** 生成 URL-safe 随机串。 */
+  function randomUrlSafe(byteLen) {
+    var arr = new Uint8Array(byteLen);
+    crypto.getRandomValues(arr);
+    return base64UrlEncode(arr);
+  }
+
+  /** 创建 PKCE 上下文并写入 storage（平板整页跳转兜底 localStorage）。 */
+  function createPkceContext(nextPath) {
+    var verifier = randomUrlSafe(32);
+    var state = randomUrlSafe(16);
+    var nonce = randomUrlSafe(16);
     var next = nextPath || defaultNextPath();
-    var returnUrl = window.location.origin + (next.charAt(0) === '/' ? next : '/' + next);
-    return PASSPORT_ORIGIN + '/login?return_url=' + encodeURIComponent(returnUrl);
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)).then(function (hash) {
+      var challenge = base64UrlEncode(new Uint8Array(hash));
+      var ctx = {
+        verifier: verifier,
+        challenge: challenge,
+        state: state,
+        nonce: nonce,
+        return: next,
+        at: Date.now()
+      };
+      sessionStorage.setItem(PKCE_STORAGE, JSON.stringify(ctx));
+      try { localStorage.setItem(PKCE_STORAGE, JSON.stringify(ctx)); } catch (_err) {}
+      return ctx;
+    });
+  }
+
+  /** 构建 Passport OAuth authorize URL。 */
+  function buildAuthorizeUrl(ctx) {
+    var redirectUri = location.origin + '/pwa/login-done';
+    var params = new URLSearchParams({
+      client_id: OAUTH_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid profile',
+      state: ctx.state,
+      code_challenge: ctx.challenge,
+      code_challenge_method: 'S256',
+      nonce: ctx.nonce
+    });
+    return PASSPORT_ORIGIN + '/oauth/authorize?' + params.toString();
   }
 
   /** 等待弹窗登录完成（postMessage 或 /api/me 轮询）。 */
@@ -85,27 +136,22 @@
     });
   }
 
-  /** 打开 passport 登录；移动端整页跳转，返回后轮询 /api/me。 */
+  /** 启动 OAuth 登录；移动端整页跳转，桌面优先弹窗。 */
   function loginPopup(nextPath) {
-    var url = passportLoginUrl(nextPath);
-    if (isMobileLike()) {
-      try {
-        sessionStorage.setItem('pb_passport_pending', nextPath || defaultNextPath());
-      } catch (_err) {}
+    return createPkceContext(nextPath).then(function (ctx) {
+      var url = buildAuthorizeUrl(ctx);
+      if (!isMobileLike()) {
+        var w = 440;
+        var h = 720;
+        var left = Math.max(0, (window.screen.width - w) / 2);
+        var top = Math.max(0, (window.screen.height - h) / 2);
+        var features = 'popup=yes,width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
+        var tab = window.open(url, POPUP_NAME, features);
+        if (tab) return waitForLoginComplete(tab);
+      }
       window.location.assign(url);
       return new Promise(function () {});
-    }
-    var w = 440;
-    var h = 640;
-    var left = Math.max(0, (window.screen.width - w) / 2);
-    var top = Math.max(0, (window.screen.height - h) / 2);
-    var features = 'popup=yes,width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
-    var tab = window.open(url, POPUP_NAME, features);
-    if (!tab) {
-      window.location.assign(url);
-      return new Promise(function () {});
-    }
-    return waitForLoginComplete(tab);
+    });
   }
 
   /** 登录成功后跳转到 return 路径或刷新当前页。 */
@@ -128,52 +174,14 @@
     });
   }
 
-    /** 平板/PWA 从 passport 返回后若 session 已写入则自动刷新登录态。 */
-  function watchMobileLoginReturn() {
-    if (!isMobileLike()) return;
-    var pending = '';
-    try {
-      pending = sessionStorage.getItem('pb_passport_pending') || '';
-    } catch (_err) {}
-
-    function pollMe() {
-      fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' })
-        .then(function (response) {
-          if (!response.ok) return null;
-          return response.json();
-        })
-        .then(function (data) {
-          if (!data || !data.user_id) return;
-          try { sessionStorage.removeItem('pb_passport_pending'); } catch (_e) {}
-          finishLogin({ return: pending || '/' });
-        })
-        .catch(function () {});
-    }
-
-    function onReturn() {
-      if (document.visibilityState && document.visibilityState !== 'visible') return;
-      pollMe();
-    }
-
-    document.addEventListener('visibilitychange', onReturn);
-    window.addEventListener('pageshow', onReturn);
-    window.addEventListener('focus', onReturn);
-    onReturn();
-  }
-
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () {
-      bindLoginButtons();
-      watchMobileLoginReturn();
-    });
+    document.addEventListener('DOMContentLoaded', bindLoginButtons);
   } else {
     bindLoginButtons();
-    watchMobileLoginReturn();
   }
 
   window.PotatoblockPassportLogin = {
     loginPopup: loginPopup,
-    passportLoginUrl: passportLoginUrl,
     MESSAGE_TYPE: MESSAGE_TYPE,
     isMobileLike: isMobileLike
   };
