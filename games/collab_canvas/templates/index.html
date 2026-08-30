@@ -13,7 +13,7 @@
 </head>
 <body>
   <main class="collab-main">
-    <section id="joinScreen" class="join-screen{% if initial_room %} hidden{% endif %}">
+    <section id="joinScreen" class="join-screen">
       <div class="join-card">
         <h1>{{ game.name }}</h1>
         <p class="join-hint">输入房间号进入；不存在则自动创建。</p>
@@ -32,17 +32,18 @@
           <span id="openPbccHint" class="join-pbcc-hint"></span>
           <input type="file" id="openPbccInput" class="join-pbcc-input" accept=".pbcc,application/json" hidden>
         </div>
+        <p id="joinStatus" class="join-status" aria-live="polite"></p>
         <p id="joinError" class="join-error" role="alert"></p>
         <a href="/" class="join-back">← 返回游戏菜单</a>
       </div>
     </section>
 
-    <section id="roomScreen" class="room-screen{% if not initial_room %} hidden{% endif %}">
+    <section id="roomScreen" class="room-screen hidden">
       <div class="collab-shell">
         <header class="collab-topbar">
           <div class="collab-topbar-left">
             <h1>合作画板</h1>
-            <span id="roomCode" class="room-badge">{{ initial_room or '----' }}</span>
+            <span id="roomCode" class="room-badge">----</span>
             <span id="memberCount" class="room-badge">0/0</span>
           </div>
           <div class="collab-topbar-right">

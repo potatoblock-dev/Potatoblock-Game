@@ -10,6 +10,7 @@
   const roomCodeEl = document.getElementById('roomCode');
   const statusEl = document.getElementById('statusText');
   const joinErrorEl = document.getElementById('joinError');
+  const joinStatusEl = document.getElementById('joinStatus');
   const roomInput = document.getElementById('roomInput');
   const restoreCheckbox = document.getElementById('restoreLastBoard');
   const openPbccBtn = document.getElementById('openPbccBtn');
@@ -26,10 +27,19 @@
 
   function setJoinError(text) {
     if (joinErrorEl) joinErrorEl.textContent = text || '';
+    if (text && joinStatusEl) joinStatusEl.textContent = '';
+  }
+
+  function setJoinStatus(text) {
+    if (joinStatusEl) joinStatusEl.textContent = text || '';
+    if (text && joinErrorEl) joinErrorEl.textContent = '';
   }
 
   function setStatus(text) {
     if (statusEl) statusEl.textContent = text || '';
+    if (joinScreen && !joinScreen.classList.contains('hidden')) {
+      setJoinStatus(text);
+    }
   }
 
   function roomIdFromPath() {
@@ -67,6 +77,7 @@
     if (roomScreen) roomScreen.classList.add('hidden');
     setCollabRoomScrollLock(false);
     setJoinError(message || '');
+    setJoinStatus('');
     setStatus('');
     try {
       history.replaceState(null, '', '/collab-canvas');
@@ -80,6 +91,7 @@
     if (roomCodeEl) roomCodeEl.textContent = roomId;
     syncRoomDeepLink(roomId);
     setJoinError('');
+    setJoinStatus('');
   }
 
   const onlinePrefs = new OnlinePrefs();
@@ -280,18 +292,30 @@
     nickname,
     getDisplayName: () => onlinePrefs.resolveDisplayName(nickname),
     handlers: {
-      close: () => setStatus('连接已断开，请刷新页面'),
+      open: () => {
+        if (session._pendingJoin) setStatus('正在进入房间…');
+      },
       error: data => {
-        const msg = data.message || '发生错误';
+        const msg = (data && data.message) || session.lastError || '连接失败';
         if (boardController) {
           boardController._clearPendingLayerCreate();
           boardController.cancelPbccRestorePending(msg);
         }
+        if (roomScreen && !roomScreen.classList.contains('hidden')) {
+          setStatus(msg);
+        } else {
+          setJoinError(msg);
+          setStatus('');
+        }
+      },
+      close: () => {
+        const msg = session.lastError || '连接已断开，请刷新页面';
         if (roomScreen && roomScreen.classList.contains('hidden')) {
           setJoinError(msg);
-        } else {
-          setStatus(msg);
+          setStatus('');
+          return;
         }
+        setStatus(msg);
       },
       room_removed: data => {
         session.disconnect();
@@ -531,12 +555,12 @@
       return;
     }
     setJoinError('');
+    setStatus('正在进入房间…');
     pendingRestoreLocal = Boolean(restoreCheckbox && restoreCheckbox.checked);
     if (global.PbccLocalStore) {
       PbccLocalStore.setRestorePref(pendingRestoreLocal);
     }
     restoreAttempted = false;
-    showRoomScreen(id);
     session.joinRoom(id);
   }
 
@@ -592,9 +616,11 @@
   if (pathRoom) {
     pendingRestoreLocal = Boolean(restoreCheckbox && restoreCheckbox.checked);
     restoreAttempted = false;
-    showRoomScreen(pathRoom);
+    setStatus('正在进入房间…');
     session.joinRoom(pathRoom);
   }
+
+  session.connect();
 
   if (typeof createCollabFullscreen === 'function') {
     createCollabFullscreen();

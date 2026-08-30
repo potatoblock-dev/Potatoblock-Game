@@ -33,6 +33,7 @@
       this.ws = new WebSocket(url);
       this.ws.addEventListener('open', () => {
         this.connected = true;
+        this.lastError = '';
         this._emit('open');
         if (this._pendingJoin) {
           const pending = this._pendingJoin;
@@ -40,10 +41,23 @@
           this.joinRoom(pending.room);
         }
       });
-      this.ws.addEventListener('close', () => {
+      this.ws.addEventListener('error', () => {
+        this.lastError = 'WebSocket 连接失败';
+        this._emit('error', { message: this.lastError });
+      });
+      this.ws.addEventListener('close', event => {
         this.connected = false;
         this.ws = null;
-        this._emit('close');
+        if (!this.roomId && this.lastError === 'WebSocket 连接失败') {
+          this._emit('close', event);
+          return;
+        }
+        if (event && event.code === 4001) {
+          this.lastError = '请先登录后再进入房间';
+        } else if (!this.roomId && event && event.code !== 1000) {
+          this.lastError = '无法连接服务器，请刷新后重试';
+        }
+        this._emit('close', event);
       });
       this.ws.addEventListener('message', event => {
         let data;

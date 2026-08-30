@@ -106,7 +106,8 @@ html.is-collab-pseudo-fullscreen .room-screen {
   min-height: 16px; font-size: 12px; color: var(--text-muted); text-align: left;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.join-error { min-height: 20px; margin: 12px 0 0; color: #f87171; font-size: 13px; }
+.join-status { min-height: 20px; margin: 12px 0 0; color: #a3a3a3; font-size: 13px; }
+.join-error { min-height: 20px; margin: 4px 0 0; color: #f87171; font-size: 13px; }
 .join-back {
   display: inline-block;
   margin-top: 16px;

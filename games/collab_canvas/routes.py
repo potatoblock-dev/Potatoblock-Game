@@ -70,7 +70,7 @@ GAME_DIR = Path(__file__).resolve().parent
 GAME_ID = "collab_canvas"
 STATIC_URL = "/static/games/collab-canvas"
 # 静态资源 ?v= 版本号；改 JS/CSS 后递增以便生产绕过浏览器缓存。
-COLLAB_ASSET_VERSION = "20260830f"
+COLLAB_ASSET_VERSION = "20260830g"
 
 game_info = {
     "id": GAME_ID,
@@ -375,10 +375,10 @@ async def remove_player_from_room(room_id: str, player_id: str, message: str) ->
         room["owner_id"] = random.choice(connected) if connected else None
     close_room_if_empty(room_id)
     if room_id in rooms:
-        await broadcast_room_state(room)
+        await broadcast_room_state_light(room)
 
 
-async def broadcast_room_state(room: Dict) -> None:
+async def broadcast_room_state_light(room: Dict) -> None:
     """向所有在线玩家推送轻量 room_state（不含 strokes）。"""
     room_id = room["room_id"]
     for pid, pdata in list(room["players"].items()):
@@ -678,6 +678,9 @@ async def collab_websocket(websocket: WebSocket):
     """合作画板实时协议。"""
     identity = await get_current_identity_ws(websocket)
     if identity is None:
+        await websocket.accept()
+        await send_error(websocket, "请先登录后再进入房间")
+        await websocket.close(code=4001)
         return
     passport_user_id, passport_nickname = identity
     await websocket.accept()
@@ -720,9 +723,6 @@ async def collab_websocket(websocket: WebSocket):
                 player_id = str(passport_user_id)
                 if timed_out_rooms.get(player_id) == requested_room_id:
                     del timed_out_rooms[player_id]
-                    await send_json(websocket, {"type": "room_removed", "message": "已退出房间"})
-                    await websocket.close(code=4004)
-                    return
 
                 await evict_from_other_games(GAME_ID, player_id)
                 occupied = player_rooms.get(player_id)
