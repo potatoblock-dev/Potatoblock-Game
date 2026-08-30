@@ -72,6 +72,7 @@
           state: state,
           code_verifier: pkce.verifier,
           nonce: pkce.nonce,
+          redirect_uri: location.origin + '/pwa/login-done',
           return: ret
         })
       }).then(function (response) {

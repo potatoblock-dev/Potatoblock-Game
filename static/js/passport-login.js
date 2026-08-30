@@ -30,6 +30,12 @@
     return window.location.origin + '/pwa/login-done';
   }
 
+  /** 平板/手机：整页跳转 OAuth，避免弹窗被拦后丢失回跳上下文。 */
+  function isMobileLike() {
+    if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) return true;
+    return 'ontouchstart' in window && window.matchMedia('(pointer: coarse)').matches;
+  }
+
   /** 生成 PKCE verifier/challenge 与 state/nonce。 */
   function randomString(bytes) {
     var arr = new Uint8Array(bytes);
@@ -160,9 +166,13 @@
     });
   }
 
-  /** 新标签页打开 OAuth authorize。 */
+  /** 新标签页打开 OAuth authorize；移动端直接整页跳转。 */
   function openLoginTab(nextPath) {
     return oauthAuthorizeUrl(nextPath).then(function (url) {
+      if (isMobileLike()) {
+        window.location.assign(url);
+        return new Promise(function () {});
+      }
       var tab = window.open(url, TAB_NAME);
       if (!tab) {
         window.location.assign(url);
@@ -192,11 +202,23 @@
     bindLoginButtons();
   }
 
+  /** 登录页带 next 或 auto_oauth 时在移动端自动发起 OAuth。 */
+  (function maybeAutoStartLogin() {
+    var params = new URLSearchParams(location.search);
+    if (location.pathname !== '/login') return;
+    var next = params.get('next') || '/';
+    var shouldAuto = params.get('auto_oauth') === '1' ||
+      (isMobileLike() && params.has('next'));
+    if (!shouldAuto) return;
+    loginPopup(next).then(finishLogin).catch(function () {});
+  })();
+
   window.PotatoblockPassportLogin = {
     loginPopup: loginPopup,
     MESSAGE_TYPE: MESSAGE_TYPE,
     oauthAuthorizeUrl: oauthAuthorizeUrl,
     oauthRedirectUri: oauthRedirectUri,
-    PKCE_STORAGE: PKCE_STORAGE
+    PKCE_STORAGE: PKCE_STORAGE,
+    isMobileLike: isMobileLike
   };
 })();
