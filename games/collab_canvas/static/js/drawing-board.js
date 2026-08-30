@@ -45,7 +45,7 @@
       this.layersMeta = [];
       canvas.width = this.logicalWidth;
       canvas.height = this.logicalHeight;
-      canvas.style.backgroundColor = this.backgroundColor;
+      canvas.style.backgroundColor = 'transparent';
       this.applySmoothing();
     }
 
@@ -351,6 +351,30 @@
       this._redrawFlat(this.strokes);
     }
 
+    /** 图层模式下清空离屏缓冲为透明；无图层时沿用旧版纯色底。 */
+    _clearDrawBuffer(useTransparent) {
+      this.context.setTransform(1, 0, 0, 1, 0, 0);
+      if (useTransparent) {
+        this.context.clearRect(0, 0, this.logicalWidth, this.logicalHeight);
+        this.backgroundColor = this.defaultBackground;
+        this.canvas.style.backgroundColor = 'transparent';
+        return;
+      }
+      let fillColor = this.defaultBackground;
+      this.strokes.forEach(stroke => {
+        if (stroke.active === false) return;
+        (stroke.segments || []).forEach(segment => {
+          if ((segment.tool || 'brush') === 'background' && isHexColor(segment.color)) {
+            fillColor = segment.color.toLowerCase();
+          }
+        });
+      });
+      this.context.fillStyle = fillColor;
+      this.context.fillRect(0, 0, this.logicalWidth, this.logicalHeight);
+      this.backgroundColor = fillColor;
+      this.canvas.style.backgroundColor = fillColor;
+    }
+
     /** 按图层顺序与透明度合成绘制；组不含笔迹，继承父组可见性。 */
     redrawLayers(layersMeta, strokes) {
       if (layersMeta) this.layersMeta = (layersMeta || []).slice();
@@ -369,22 +393,9 @@
         }
         return true;
       };
-      let fillColor = this.defaultBackground;
-      this.strokes.forEach(stroke => {
-        if (stroke.active === false) return;
-        (stroke.segments || []).forEach(segment => {
-          if ((segment.tool || 'brush') === 'background' && isHexColor(segment.color)) {
-            fillColor = segment.color.toLowerCase();
-          }
-        });
-      });
       const main = this.context;
       this.context = this._bufferCtx;
-      this.context.setTransform(1, 0, 0, 1, 0, 0);
-      this.context.fillStyle = fillColor;
-      this.context.fillRect(0, 0, this.logicalWidth, this.logicalHeight);
-      this.backgroundColor = fillColor;
-      this.canvas.style.backgroundColor = fillColor;
+      this._clearDrawBuffer(true);
       sorted.forEach(layer => {
         if (layer.kind === 'group') return;
         if (!isVisible(layer)) return;
@@ -414,21 +425,8 @@
       this.ensureBufferSize();
       this.applySmoothing();
       const main = this.context;
-      let fillColor = this.defaultBackground;
-      this.strokes.forEach(stroke => {
-        if (stroke.active === false) return;
-        (stroke.segments || []).forEach(segment => {
-          if ((segment.tool || 'brush') === 'background' && isHexColor(segment.color)) {
-            fillColor = segment.color.toLowerCase();
-          }
-        });
-      });
       this.context = this._bufferCtx;
-      this.context.setTransform(1, 0, 0, 1, 0, 0);
-      this.context.fillStyle = fillColor;
-      this.context.fillRect(0, 0, this.logicalWidth, this.logicalHeight);
-      this.backgroundColor = fillColor;
-      this.canvas.style.backgroundColor = fillColor;
+      this._clearDrawBuffer(false);
       this.strokes.filter(stroke => stroke.active !== false).forEach(stroke => stroke.segments.forEach(segment => {
         if ((segment.tool || 'brush') === 'background') return;
         this.drawSegment(segment);

@@ -64,6 +64,11 @@
       this._handLast = null;
       this._boardCreateCooldownUntil = 0;
       this._pendingSelectionCopy = null;
+      this._pendingLayerCreateId = '';
+      this._pbccAutoSaveTimer = null;
+      this._pbccSaveBusy = false;
+      this._pbccRestorePending = false;
+      this._pbccRestoreBoardCount = 0;
 
       this.toolController = new ToolController();
       this.toolController.attachBoard(this);
@@ -118,7 +123,7 @@
 
     /** 舞台尺寸变化时重新 fit，保证视口灰色 letterbox 正确。 */
     _bindStageResize() {
-      this.    _refitCanvas = () => {
+      this._refitCanvas = () => {
         if (this.stage) this.drawingBoard.fitToStage(this.stage);
         this._updateBrushSizeDockPreview();
         if (this.selectionActionsBar) this.selectionActionsBar.sync();
@@ -143,8 +148,36 @@
     }
 
     _activeLayerLocked() {
-      const layer = this.layersMeta.find(l => l.layer_id === this.activeLayerId);
-      return Boolean(layer && layer.locked);
+      return this._isLayerLocked(this.drawLayerId());
+    }
+
+    /** 指定图层或其任意父组是否锁定。 */
+    _isLayerLocked(layerId) {
+      let current = this.layersMeta.find(l => l.layer_id === layerId);
+      while (current) {
+        if (current.locked) return true;
+        const parentId = current.parent_id || '';
+        if (!parentId) break;
+        current = this.layersMeta.find(l => l.layer_id === parentId);
+      }
+      return false;
+    }
+
+    /** 合并图层 visible/opacity/locked 补丁到 layersMeta。 */
+    _applyLayerPatch(layerId, patch) {
+      const layer = this.layersMeta.find(l => l.layer_id === layerId);
+      if (!layer || !patch) return false;
+      if ('visible' in patch) layer.visible = Boolean(patch.visible);
+      if ('opacity' in patch) layer.opacity = Number(patch.opacity);
+      if ('locked' in patch) layer.locked = Boolean(patch.locked);
+      return true;
+    }
+
+    /** 图层元数据变更后刷新列表与画布。 */
+    _syncLayerUi() {
+      if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
+      this._redraw();
+      if (this.selectionActionsBar) this.selectionActionsBar.sync();
     }
 
     /** 设置房间级动作回调（复制链接、离开、打开设置）。 */
@@ -166,6 +199,7 @@
           return;
         case 'clearLayer':
           if (!this.canDraw) return;
+          if (this._activeLayerLocked()) return;
           if (confirm('清空当前图层？')) this.adapter.sendHistoryAction('clear');
           return;
         case 'toolBrush':
@@ -262,6 +296,10 @@
         case 'exportKra':
           if (!this.canSave) return;
           this.exportAllBoards('kra');
+          return;
+        case 'exportPbcc':
+          if (!this.canSave) return;
+          this.exportAllBoards('pbcc');
           return;
         case 'copyLink':
           if (this._roomActions.copyLink) this._roomActions.copyLink();
@@ -435,16 +473,15 @@
       this._applySelfPermissions(data.players, data.self_id);
       this.activeBoardId = data.active_board_id || 'b_default';
       this.activeLayerId = data.active_layer_id || 'l_default';
-      this.layersMeta = (data.layers || [{ layer_id: 'l_default', name: '图层 1', kind: 'paint', parent_id: '', visible: true, opacity: 255, locked: false, order: 0 }])
-        .map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
+      this.layersMeta = this._coerceLayers(data.layers);
       this.boardsMeta = data.boards || [];
       this.boardOrder = data.board_order || this.boardsMeta.map(b => b.board_id);
       this.strokes = DrawingBoard.cloneStrokes(data.strokes || []);
-      this._refitCanvas();
-      this._redraw();
       if (this.layerPanel) {
         this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
       }
+      this._refitCanvas();
+      this._redraw();
       if (!this.isHost() && data.last_board_create_at) {
         const cooldownMs = global.BOARD_CREATE_COOLDOWN_MS || 60000;
         const until = Math.floor(Number(data.last_board_create_at) * 1000) + cooldownMs;
@@ -494,8 +531,6 @@
       }
       const exportToggle = document.getElementById('exportToggleBtn');
       if (exportToggle) exportToggle.disabled = !this.canSave;
-      const clearBtn = document.getElementById('clearBtn');
-      if (clearBtn) clearBtn.disabled = !this.canDraw;
       if (!this.canDraw && this.brushPreview) this.brushPreview.hide();
       if (this.selectionActionsBar) this.selectionActionsBar.sync();
     }
@@ -512,7 +547,7 @@
     handleDrawingSync(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
       if (data.layers) {
-        this.layersMeta = data.layers.map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
+        this.layersMeta = this._coerceLayers(data.layers);
         const sorted = this.layersMeta.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
         if (sorted.length) this.activeLayerId = sorted[sorted.length - 1].layer_id;
       }
@@ -553,6 +588,7 @@
 
     handleLayerAdded(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
+      this._clearPendingLayerCreate();
       if (data.layer) {
         const layer = this._normalizeLayerMeta(Object.assign({}, data.layer));
         if (!this.layersMeta.some(item => item.layer_id === layer.layer_id)) {
@@ -568,6 +604,7 @@
       }
       if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
       this._redraw();
+      this._layerUiMessage('');
     }
 
     /** 将 pending 选区复制像素写入新建图层。 */
@@ -613,6 +650,10 @@
 
     handleLayerRemoved(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
+      const removed = this.layersMeta.find(l => l.layer_id === data.layer_id);
+      if (removed && this._isGroupLayer(removed)) {
+        this._reparentLayerChildren(data.layer_id, removed.parent_id || '');
+      }
       this.layersMeta = this.layersMeta.filter(l => l.layer_id !== data.layer_id);
       this.strokes = this.strokes.filter(s => String(s.layer_id || 'l_default') !== data.layer_id);
       if (this.activeLayerId === data.layer_id) {
@@ -642,14 +683,12 @@
 
     handleLayerUpdated(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
-      const layer = this.layersMeta.find(l => l.layer_id === data.layer_id);
-      if (!layer) return;
-      if ('visible' in data) layer.visible = Boolean(data.visible);
-      if ('opacity' in data) layer.opacity = Number(data.opacity);
-      if ('locked' in data) layer.locked = Boolean(data.locked);
-      if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
-      this._redraw();
-      if (this.selectionActionsBar) this.selectionActionsBar.sync();
+      const patch = {};
+      if ('visible' in data) patch.visible = data.visible;
+      if ('opacity' in data) patch.opacity = data.opacity;
+      if ('locked' in data) patch.locked = data.locked;
+      if (!this._applyLayerPatch(data.layer_id, patch)) return;
+      this._syncLayerUi();
     }
 
     switchLayer(layerId) {
@@ -670,6 +709,44 @@
       if (!layer.kind) layer.kind = 'paint';
       if (layer.parent_id == null) layer.parent_id = '';
       return layer;
+    }
+
+    /** 保证至少有两层：底白背景 + 顶透明绘画层。 */
+    _coerceLayers(layers) {
+      const fallback = [
+        {
+          layer_id: 'l_background',
+          name: '背景',
+          kind: 'paint',
+          parent_id: '',
+          visible: true,
+          opacity: 255,
+          locked: false,
+          order: 0
+        },
+        {
+          layer_id: 'l_default',
+          name: '图层 1',
+          kind: 'paint',
+          parent_id: '',
+          visible: true,
+          opacity: 255,
+          locked: false,
+          order: 1
+        }
+      ];
+      const source = !Array.isArray(layers) || layers.length === 0 ? fallback : layers;
+      return source.map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
+    }
+
+    /** 将被删组/层的子图层挂到新 parent（空串为根）。 */
+    _reparentLayerChildren(removedLayerId, newParentId) {
+      const parentId = newParentId || '';
+      this.layersMeta.forEach(layer => {
+        if ((layer.parent_id || '') === removedLayerId) {
+          layer.parent_id = parentId;
+        }
+      });
     }
 
     /** 返回 order 最高的绘画图层 id。 */
@@ -701,17 +778,58 @@
       return this.activeLayerId;
     }
 
+    /** 在状态栏提示图层相关错误。 */
+    _layerUiMessage(message) {
+      if (this._roomActions.setStatus) this._roomActions.setStatus(message);
+    }
+
+    /** 移除乐观占位图层。 */
+    _clearPendingLayerCreate() {
+      if (!this._pendingLayerCreateId) return;
+      this.layersMeta = this.layersMeta.filter(l => l.layer_id !== this._pendingLayerCreateId);
+      if (this.activeLayerId === this._pendingLayerCreateId) {
+        this.activeLayerId = this._topPaintLayerId();
+      }
+      this._pendingLayerCreateId = '';
+      if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
+    }
+
+    /** 新建图层/组：本地先占位，等服务端 layer_added 替换。 */
     createLayer(options) {
       const opts = options || {};
+      const kind = opts.kind || 'paint';
+      const parentId = opts.parentId != null ? opts.parentId : this._resolveNewLayerParentId();
+      const maxOrder = this.layersMeta.reduce((max, layer) => Math.max(max, layer.order || 0), 0);
+      const paintCount = this.layersMeta.filter(l => !this._isGroupLayer(l)).length;
+      const groupCount = this.layersMeta.filter(l => this._isGroupLayer(l)).length;
+      const pendingId = 'l_pending_' + Date.now().toString(36);
+      const pendingLayer = this._normalizeLayerMeta({
+        layer_id: pendingId,
+        name: opts.name || (kind === 'group' ? `组 ${groupCount + 1}` : `图层 ${paintCount + 1}`),
+        kind,
+        parent_id: parentId || '',
+        visible: true,
+        opacity: 255,
+        locked: false,
+        order: maxOrder + 1
+      });
+      this._clearPendingLayerCreate();
+      this._pendingLayerCreateId = pendingId;
+      this.layersMeta.push(pendingLayer);
+      this.activeLayerId = pendingId;
+      this._syncLayerUi();
+
       const payload = {
         type: 'layer_create',
         board_id: this.activeBoardId,
-        kind: opts.kind || 'paint'
+        kind
       };
-      const parentId = opts.parentId != null ? opts.parentId : this._resolveNewLayerParentId();
       if (parentId) payload.parent_id = parentId;
       if (opts.name) payload.name = opts.name;
       if (!this.session.send(payload)) {
+        this._clearPendingLayerCreate();
+        this._syncLayerUi();
+        this._layerUiMessage('连接未就绪，无法新建图层');
         return false;
       }
       return true;
@@ -749,7 +867,12 @@
     }
 
     updateLayer(layerId, patch) {
-      this.session.send(Object.assign({ type: 'layer_update', board_id: this.activeBoardId, layer_id: layerId }, patch));
+      if (!this._applyLayerPatch(layerId, patch)) return;
+      this._syncLayerUi();
+      this.session.send(Object.assign(
+        { type: 'layer_update', board_id: this.activeBoardId, layer_id: layerId },
+        patch
+      ));
     }
 
     handleBoardAdded(data) {
@@ -786,8 +909,15 @@
       if (boardId === this.activeBoardId) return;
       this.adapter.flushSegments();
       this.activeBoardId = boardId;
+      const players = this.getPlayersSnapshot().slice();
+      const selfIdx = players.findIndex(p => p.uid === this.selfId);
+      if (selfIdx >= 0) {
+        players[selfIdx] = Object.assign({}, players[selfIdx], { active_board_id: boardId });
+        this.setPlayersSnapshot(players);
+      }
       this.strokes = [];
       this.layersMeta = [];
+      if (this.layerPanel) this.layerPanel.setLayers([], this.activeLayerId);
       this._redraw();
       this.session.send({ type: 'board_switch', board_id: boardId });
       if (this.boardPanel) this.boardPanel.setActive(boardId);
@@ -821,7 +951,138 @@
       if (!this.isDrawing) this._redraw();
     }
 
-    /** 收集全部画板 strokes 并批量导出（每画板一个文件）。 */
+    /** 收集全部画板 strokes/layers 快照（导出与本机保存共用）。 */
+    async collectBoardsForExport() {
+      this.adapter.flushSegments();
+      const order = this.boardOrder.length
+        ? this.boardOrder.slice()
+        : this.boardsMeta.map(b => b.board_id);
+      const boards = [];
+      for (let i = 0; i < order.length; i += 1) {
+        const boardId = order[i];
+        const meta = this.boardsMeta.find(b => b.board_id === boardId);
+        if (!meta) continue;
+        let strokes;
+        let layers;
+        let canvas = meta.canvas;
+        if (boardId === this.activeBoardId) {
+          strokes = DrawingBoard.cloneStrokes(this.strokes);
+          layers = this.layersMeta.slice();
+        } else {
+          const sync = await this.session.requestBoardSync(boardId);
+          strokes = sync.strokes || [];
+          layers = sync.layers || [];
+          canvas = sync.canvas || canvas;
+        }
+        boards.push({
+          meta: {
+            board_id: boardId,
+            title: meta.title,
+            canvas,
+            layers,
+            created_at: meta.created_at,
+            created_by: meta.created_by,
+            exportOptions: this.canSave ? {} : {
+              watermarkText: `${this.session.roomId || 'room'} · 预览`
+            }
+          },
+          strokes
+        });
+      }
+      return boards;
+    }
+
+    /** 房主将当前房间写入本机 IndexedDB（.pbcc 文档）。 */
+    async saveLocalPbccSnapshot() {
+      if (!this.isHost() || this._pbccSaveBusy || !global.PbccLocalStore) return false;
+      if (!this.session || !this.session.roomId) return false;
+      this._pbccSaveBusy = true;
+      try {
+        const boards = await this.collectBoardsForExport();
+        if (!boards.length) return false;
+        const document = this.exportRegistry.buildPbccDocument(boards, {
+          roomId: this.session.roomId,
+          boardOrder: this.boardOrder,
+          exportedByUid: this.selfId,
+          exportedByName: this.session.getDisplayName
+            ? this.session.getDisplayName()
+            : ''
+        });
+        await PbccLocalStore.save(this.selfId, this.session.roomId, document);
+        return true;
+      } catch (_err) {
+        return false;
+      } finally {
+        this._pbccSaveBusy = false;
+      }
+    }
+
+    /** 房主进房后尝试从本机或指定文档恢复画板；返回 sent|none|failed。 */
+    async tryRestoreLocalPbcc(options) {
+      const opts = options || {};
+      if (!this.isHost() || !global.PbccFormat || !this.session) return 'none';
+      let document = opts.document || null;
+      if (!document && opts.fromLocal && global.PbccLocalStore) {
+        document = await PbccLocalStore.load(this.selfId, this.session.roomId);
+      }
+      if (!document) return 'none';
+      const setStatus = this._roomActions.setStatus || (() => {});
+      setStatus('正在恢复上次画板…');
+      if (!this.session.sendRoomImport(document)) {
+        setStatus('连接未就绪，无法恢复画板');
+        return 'failed';
+      }
+      this._pbccRestorePending = true;
+      this._pbccRestoreBoardCount = Array.isArray(document.boards) ? document.boards.length : 0;
+      return 'sent';
+    }
+
+    /** room_import 成功后第二次 room_state 时更新状态栏。 */
+    finishPbccRestoreIfPending() {
+      if (!this._pbccRestorePending) return false;
+      this._pbccRestorePending = false;
+      const setStatus = this._roomActions.setStatus || (() => {});
+      const n = this._pbccRestoreBoardCount || this.boardOrder.length || 1;
+      setStatus(`已恢复 ${n} 个画板`);
+      window.setTimeout(() => setStatus(''), 4000);
+      return true;
+    }
+
+    /** 服务端 error 时清除恢复中状态。 */
+    cancelPbccRestorePending(message) {
+      if (!this._pbccRestorePending) return;
+      this._pbccRestorePending = false;
+      const setStatus = this._roomActions.setStatus || (() => {});
+      setStatus(message || '恢复画板失败');
+    }
+
+    /** 启动房主本机自动保存（离开/定时）。 */
+    schedulePbccAutoSave() {
+      this.stopPbccAutoSave();
+      if (!this.isHost()) return;
+      this._pbccAutoSaveTimer = window.setInterval(() => {
+        this.saveLocalPbccSnapshot();
+      }, 90000);
+    }
+
+    /** 停止本机自动保存定时器。 */
+    stopPbccAutoSave() {
+      if (this._pbccAutoSaveTimer) {
+        clearInterval(this._pbccAutoSaveTimer);
+        this._pbccAutoSaveTimer = null;
+      }
+    }
+
+    /** 判断 room_state 是否已含用户绘制内容。 */
+    static roomStateHasUserContent(data) {
+      const strokes = (data && data.strokes) || [];
+      return strokes.some(stroke => {
+        if (stroke.owner_id === '__system__') return false;
+        return (stroke.segments || []).some(seg => seg && seg.tool !== 'background');
+      });
+    }
+
+    /** 收集全部画板 strokes 并批量导出（pbcc 为单文件）。 */
     async exportAllBoards(formatId) {
       if (this._exportBusy) return;
       if (!this.canSave) {
@@ -832,51 +1093,23 @@
       this._exportBusy = true;
       const statusEl = document.getElementById('statusText');
       const setStatus = text => { if (statusEl) statusEl.textContent = text || ''; };
+      const format = this.exportRegistry.get(formatId);
+      const isPbcc = format && format.multiBoardSingleFile;
       try {
-        this.adapter.flushSegments();
-        const order = this.boardOrder.length
-          ? this.boardOrder.slice()
-          : this.boardsMeta.map(b => b.board_id);
-        const boards = [];
         setStatus('正在准备导出…');
-        for (let i = 0; i < order.length; i += 1) {
-          const boardId = order[i];
-          const meta = this.boardsMeta.find(b => b.board_id === boardId);
-          if (!meta) continue;
-          setStatus(`同步画板 ${i + 1}/${order.length}…`);
-          let strokes;
-          let layers;
-          let canvas = meta.canvas;
-          if (boardId === this.activeBoardId) {
-            strokes = DrawingBoard.cloneStrokes(this.strokes);
-            layers = this.layersMeta.slice();
-          } else {
-            const sync = await this.session.requestBoardSync(boardId);
-            strokes = sync.strokes || [];
-            layers = sync.layers || [];
-            canvas = sync.canvas || canvas;
-          }
-          boards.push({
-            meta: {
-              board_id: boardId,
-              title: meta.title,
-              canvas,
-              layers,
-              exportOptions: this.canSave ? {} : {
-                watermarkText: `${this.session.roomId || 'room'} · 预览`
-              }
-            },
-            strokes
-          });
-        }
+        const boards = await this.collectBoardsForExport();
         if (!boards.length) throw new Error('没有可导出的画板');
-        setStatus(`正在导出 ${boards.length} 个文件…`);
+        setStatus(isPbcc ? '正在导出 .pbcc…' : `正在导出 ${boards.length} 个文件…`);
         await this.exportRegistry.exportBoards(formatId, boards, {
           roomId: this.session.roomId || 'room',
           delayMs: 150,
-          watermarkText: this.canSave ? null : `${this.session.roomId || 'room'} · 预览`
+          exportedByUid: this.selfId,
+          exportedByName: this.session.getDisplayName ? this.session.getDisplayName() : ''
         });
-        setStatus(`已导出 ${boards.length} 个文件`);
+        if (isPbcc && this.isHost()) {
+          await this.saveLocalPbccSnapshot();
+        }
+        setStatus(isPbcc ? '已导出 .pbcc 文件' : `已导出 ${boards.length} 个文件`);
       } catch (err) {
         setStatus(err.message || '导出失败');
       } finally {
@@ -917,6 +1150,7 @@
 
     _appendLocalSegment(strokeId, segment) {
       if (!this.canDraw && segment.tool !== 'localRaster') return;
+      if (segment.tool !== 'localRaster' && this._activeLayerLocked()) return;
       this.drawingBoard.appendSegment(this.strokes, this.selfId, strokeId, segment, this.drawLayerId());
       this.drawingBoard.drawSegment(segment);
       if (segment.tool !== 'localRaster') {
@@ -1007,7 +1241,6 @@
       }
       const undoBtn = document.getElementById('undoBtn');
       const redoBtn = document.getElementById('redoBtn');
-      const clearBtn = document.getElementById('clearBtn');
       const exportMenu = document.getElementById('exportMenu');
       const exportToggle = document.getElementById('exportToggleBtn');
       const exportPanel = document.getElementById('exportMenuPanel');
@@ -1031,7 +1264,6 @@
       });
       if (undoBtn) undoBtn.addEventListener('click', () => this.executeAction('undo'));
       if (redoBtn) redoBtn.addEventListener('click', () => this.executeAction('redo'));
-      if (clearBtn) clearBtn.addEventListener('click', () => this.executeAction('clearLayer'));
     }
 
     _bindVisibility() {

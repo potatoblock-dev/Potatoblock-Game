@@ -130,6 +130,11 @@
       };
     }
 
+    /** 向服务端发送 .pbcc 文档以覆盖房间画板（仅房主）。 */
+    sendRoomImport(document) {
+      return this.send({ type: 'room_import', document });
+    }
+
     send(payload) {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
       this.ws.send(JSON.stringify(payload));

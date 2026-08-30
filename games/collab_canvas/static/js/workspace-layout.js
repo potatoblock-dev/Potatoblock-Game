@@ -9,6 +9,7 @@
   const DEFAULT_LEFT_W = 52;
   const DEFAULT_RIGHT_W = 280;
   const SPLITTER_PX = 6;
+  const DEFAULT_SPLIT_RATIO = 0.45;
 
   /** 持久化 dock 尺寸与分割比例。 */
   class LayoutStore {
@@ -115,8 +116,12 @@
     }
 
     _applySplitRatio() {
-      if (!this.rightDock || !this._saved.splitRatio) return;
-      const ratio = clamp(this._saved.splitRatio, 0.2, 0.8);
+      if (!this.rightDock) return;
+      const ratio = clamp(
+        this._saved.splitRatio != null ? this._saved.splitRatio : DEFAULT_SPLIT_RATIO,
+        0.2,
+        0.8
+      );
       this.rightDock.style.gridTemplateRows = this._splitGridTemplate(ratio);
     }
 

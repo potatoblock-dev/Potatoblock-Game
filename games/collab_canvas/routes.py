@@ -29,14 +29,21 @@ from app.games.common.drawing_board import (
     clear_layer_strokes,
     create_board_layer,
     default_layers,
+    default_background_strokes,
+    DEFAULT_BG_STROKE_ID,
+    SYSTEM_STROKE_OWNER,
     default_vector_canvas,
     duplicate_board_layer,
     get_layer,
     is_group_layer,
+    is_layer_locked,
     is_paint_layer,
     layer_has_strokes,
     layer_parent_id,
     migrate_board_layers,
+    normalize_canvas_mode,
+    normalize_layer_kind,
+    normalize_segment,
     redo_player_stroke,
     reparent_group_children,
     serialize_canvas,
@@ -91,7 +98,7 @@ def create_board(title: str, board_id: Optional[str] = None, created_by: Optiona
         "board_id": board_id or ("b_" + uuid.uuid4().hex[:10]),
         "title": str(title or "画板")[:40],
         "layers": default_layers(),
-        "strokes": [],
+        "strokes": default_background_strokes(),
         "redo": {},
         "canvas": default_vector_canvas(),
         "created_at": time.time(),
@@ -467,12 +474,146 @@ async def handle_player_disconnect(
 
 
 def board_has_drawn_strokes(board: Dict) -> bool:
-    """判断画板是否含非背景笔触。"""
+    """判断画板是否含用户绘制内容（不含默认白底）。"""
     for stroke in board.get("strokes") or []:
+        if stroke.get("owner_id") == SYSTEM_STROKE_OWNER:
+            continue
+        if stroke.get("stroke_id") == DEFAULT_BG_STROKE_ID:
+            continue
         for segment in stroke.get("segments") or []:
             if segment.get("tool", "brush") != "background":
                 return True
     return False
+
+
+def room_has_user_strokes(room: Dict) -> bool:
+    """房间是否已有用户绘制内容。"""
+    for board_id in room.get("board_order", []):
+        board = get_board(room, board_id)
+        if board and board_has_drawn_strokes(board):
+            return True
+    return False
+
+
+def _board_from_pbcc_entry(entry: Dict, player_id: str) -> Dict:
+    """从 .pbcc 画板条目构建服务端 board 对象。"""
+    board_id = str(entry.get("board_id") or ("b_" + uuid.uuid4().hex[:10]))
+    title = str(entry.get("title") or "画板")[:40]
+    canvas = normalize_canvas_mode(entry.get("canvas") or default_vector_canvas())
+    layers_raw = entry.get("layers") or default_layers()
+    layers: List[Dict] = []
+    for layer in layers_raw:
+        if not isinstance(layer, dict) or not layer.get("layer_id"):
+            continue
+        parent = layer.get("parent_id")
+        layers.append(
+            {
+                "layer_id": str(layer["layer_id"]),
+                "name": str(layer.get("name") or layer["layer_id"])[:40],
+                "kind": normalize_layer_kind(layer.get("kind")),
+                "parent_id": str(parent) if parent else None,
+                "visible": bool(layer.get("visible", True)),
+                "opacity": max(0, min(255, int(layer.get("opacity", 255)))),
+                "locked": bool(layer.get("locked", False)),
+                "order": int(layer.get("order", 0)),
+            }
+        )
+    if not layers:
+        layers = default_layers()
+    strokes: List[Dict] = []
+    for stroke in entry.get("strokes") or []:
+        if not isinstance(stroke, dict):
+            continue
+        segments = []
+        for seg in stroke.get("segments") or []:
+            if not isinstance(seg, dict) or seg.get("tool") == "localRaster":
+                continue
+            try:
+                segments.append(normalize_segment(seg))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if not segments:
+            continue
+        strokes.append(
+            {
+                "stroke_id": str(stroke.get("stroke_id") or uuid.uuid4())[:100],
+                "owner_id": str(stroke.get("owner_id") or player_id),
+                "layer_id": str(stroke.get("layer_id") or DEFAULT_LAYER_ID),
+                "segments": segments,
+                "active": bool(stroke.get("active", True)),
+            }
+        )
+    if not any(s.get("owner_id") == SYSTEM_STROKE_OWNER for s in strokes):
+        strokes = list(default_background_strokes()) + strokes
+    board = {
+        "board_id": board_id,
+        "title": title,
+        "layers": layers,
+        "strokes": strokes,
+        "redo": {},
+        "canvas": canvas,
+        "created_at": float(entry.get("created_at") or time.time()),
+        "created_by": str(entry.get("created_by") or player_id),
+    }
+    migrate_board_layers(board)
+    return board
+
+
+def import_pbcc_document(room: Dict, document: Dict, player_id: str) -> None:
+    """用 .pbcc 文档替换房间全部画板。"""
+    boards_in = document.get("boards") or []
+    order_in = document.get("board_order") or []
+    if not boards_in:
+        raise ValueError("文档不含画板")
+    if len(boards_in) > MAX_BOARDS_PER_ROOM:
+        raise ValueError("画板数量超过上限")
+    new_boards: Dict[str, Dict] = {}
+    new_order: List[str] = []
+    seen_ids: Set[str] = set()
+    for board_id in order_in:
+        entry = next(
+            (b for b in boards_in if str(b.get("board_id")) == str(board_id)),
+            None,
+        )
+        if not entry:
+            continue
+        board = _board_from_pbcc_entry(entry, player_id)
+        new_boards[board["board_id"]] = board
+        new_order.append(board["board_id"])
+        seen_ids.add(board["board_id"])
+    for entry in boards_in:
+        bid = str(entry.get("board_id") or "")
+        if bid and bid not in seen_ids:
+            board = _board_from_pbcc_entry(entry, player_id)
+            new_boards[board["board_id"]] = board
+            new_order.append(board["board_id"])
+            seen_ids.add(board["board_id"])
+    if not new_order:
+        raise ValueError("无法解析画板")
+    room["boards"] = new_boards
+    room["board_order"] = new_order
+    active_board = new_order[0]
+    active_layer = top_layer_id(new_boards[active_board])
+    for pdata in room["players"].values():
+        pdata["active_board_id"] = active_board
+        pdata["active_layer_id"] = active_layer
+
+
+async def broadcast_room_state(room_id: str) -> None:
+    """向房间内所有在线玩家推送最新 room_state。"""
+    room = rooms.get(room_id)
+    if not room:
+        return
+    for pid, pdata in list(room["players"].items()):
+        if not pdata.get("connected"):
+            continue
+        try:
+            await send_json(
+                pdata["ws"],
+                build_room_state(room, pid, include_strokes=True),
+            )
+        except Exception:
+            continue
 
 
 @router.get("/collab-canvas", response_class=HTMLResponse)
@@ -680,6 +821,7 @@ async def collab_websocket(websocket: WebSocket):
                 continue
             room = rooms[room_id]
             if player_id not in room["players"]:
+                await send_error(websocket, "会话已失效，请刷新页面")
                 continue
             pdata = room["players"][player_id]
 
@@ -724,6 +866,48 @@ async def collab_websocket(websocket: WebSocket):
                 assert board is not None
                 pdata["active_layer_id"] = top_layer_id(board)
                 await send_json(websocket, build_drawing_sync(board, board_id))
+                await broadcast(
+                    room_id,
+                    {
+                        "type": "player_board",
+                        "player_id": player_id,
+                        "board_id": board_id,
+                        "name": str(pdata.get("name") or ""),
+                    },
+                    exclude_id=player_id,
+                )
+                continue
+
+            if msg_type == "room_import":
+                if not is_room_host(room, player_id):
+                    await send_error(websocket, "仅房主可导入画板")
+                    continue
+                document = data.get("document")
+                if not isinstance(document, dict):
+                    await send_error(websocket, "导入数据无效")
+                    continue
+                if str(document.get("format") or "") != "pbcc":
+                    await send_error(websocket, "不是有效的 .pbcc 文档")
+                    continue
+                connected = sum(
+                    1 for pl in room["players"].values() if pl.get("connected")
+                )
+                if room_has_user_strokes(room) and connected > 1:
+                    await send_error(
+                        websocket,
+                        "房间已有内容且其他玩家在线，无法覆盖导入",
+                    )
+                    continue
+                try:
+                    import_pbcc_document(room, document, player_id)
+                except ValueError as exc:
+                    await send_error(websocket, str(exc))
+                    continue
+                except Exception as exc:
+                    logger.exception("room_import 失败")
+                    await send_error(websocket, f"导入失败：{exc}")
+                    continue
+                await broadcast_room_state(room_id)
                 continue
 
             if msg_type == "board_rename":
@@ -805,6 +989,10 @@ async def collab_websocket(websocket: WebSocket):
                     )
                 except ValueError as exc:
                     await send_error(websocket, str(exc))
+                    continue
+                except Exception as exc:
+                    logger.exception("layer_create 失败")
+                    await send_error(websocket, f"新建图层失败：{exc}")
                     continue
                 pdata["active_layer_id"] = layer["layer_id"]
                 payload = {
@@ -953,6 +1141,7 @@ async def collab_websocket(websocket: WebSocket):
                 board = get_board(room, board_id)
                 if not board:
                     continue
+                ensure_board(board)
                 layer = get_layer(board, layer_id)
                 if not layer:
                     await send_error(websocket, "图层不存在")
@@ -963,18 +1152,16 @@ async def collab_websocket(websocket: WebSocket):
                     layer["opacity"] = max(0, min(255, int(data.get("opacity"))))
                 if "locked" in data:
                     layer["locked"] = bool(data.get("locked"))
-                await broadcast_to_board(
-                    room_id,
-                    board_id,
-                    {
-                        "type": "layer_updated",
-                        "board_id": board_id,
-                        "layer_id": layer_id,
-                        "visible": layer.get("visible", True),
-                        "opacity": layer.get("opacity", 255),
-                        "locked": layer.get("locked", False),
-                    },
-                )
+                payload = {
+                    "type": "layer_updated",
+                    "board_id": board_id,
+                    "layer_id": layer_id,
+                    "visible": layer.get("visible", True),
+                    "opacity": layer.get("opacity", 255),
+                    "locked": layer.get("locked", False),
+                }
+                await send_json(websocket, payload)
+                await broadcast_to_board(room_id, board_id, payload, exclude_id=player_id)
                 continue
 
             if msg_type == "host_set_permissions":
@@ -1051,7 +1238,7 @@ async def collab_websocket(websocket: WebSocket):
                     continue
                 layer_id = resolve_draw_layer_id(board, pdata, data)
                 layer = get_layer(board, layer_id)
-                if layer and layer.get("locked"):
+                if layer and is_layer_locked(board, layer_id):
                     continue
                 stroke_id = str(data.get("stroke_id") or "")[:100]
                 if msg_type == "draw_batch":
@@ -1113,6 +1300,7 @@ async def collab_websocket(websocket: WebSocket):
                 if not board:
                     continue
                 layer_id = resolve_draw_layer_id(board, pdata, data)
+                # 仅操作 player_id 自己的 stroke；redo 栈亦按玩家隔离。
                 stroke = (
                     undo_player_stroke(board["strokes"], board["redo"], player_id, layer_id)
                     if msg_type == "undo"
@@ -1141,6 +1329,8 @@ async def collab_websocket(websocket: WebSocket):
                 if not board:
                     continue
                 layer_id = resolve_draw_layer_id(board, pdata, data)
+                if is_layer_locked(board, layer_id):
+                    continue
                 clear_layer_strokes(board, layer_id)
                 board["redo"] = {}
                 clear_msg = {"type": "clear", "board_id": board_id, "layer_id": layer_id}

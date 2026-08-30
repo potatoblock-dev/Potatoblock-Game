@@ -10,6 +10,10 @@
   --ws-viewport: #535353;
   --ws-left-w: 52px;
   --ws-right-w: 280px;
+  /* 透明底棋盘格（与 layer-thumbnail 一致：正交方格，非对角三角） */
+  --checker-light: #e8e8e8;
+  --checker-dark: #bdbdbd;
+  --checker-size: 8px;
 }
 
 .room-screen { padding: 0; height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--ws-bg); overscroll-behavior: none; }
@@ -199,7 +203,7 @@ body.is-dock-width-dragging * {
 
 #dockRightTop {
   grid-row: 1;
-  min-height: 0;
+  min-height: 140px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -466,8 +470,13 @@ body.is-dock-split-dragging * {
   aspect-ratio: unset;
   max-width: none;
   will-change: transform;
-  background: transparent !important;
   overflow: hidden;
+  background-color: var(--checker-light) !important;
+  background-image:
+    linear-gradient(0deg, var(--checker-dark) 50%, transparent 50%),
+    linear-gradient(90deg, var(--checker-dark) 50%, transparent 50%);
+  background-size: calc(var(--checker-size) * 2) calc(var(--checker-size) * 2);
+  background-position: 0 0, var(--checker-size) var(--checker-size);
 }
 .canvas-zoom-badge {
   position: absolute; top: 8px; left: 8px; z-index: 30; padding: 3px 8px;
@@ -486,7 +495,6 @@ body.is-dock-split-dragging * {
   aspect-ratio: unset;
   width: auto;
   max-width: none;
-  background: transparent !important;
 }
 
 .workspace.drawing-board #drawCanvas {
@@ -495,6 +503,7 @@ body.is-dock-split-dragging * {
   max-width: none;
   max-height: none;
   box-shadow: none;
+  background: transparent !important;
 }
 
 /* 覆盖 drawing-board 移动端规则，合作画板始终铺满中央区 */
@@ -687,10 +696,15 @@ body.is-dock-split-dragging * {
   display: flex; align-items: center; gap: 4px;
   min-height: 42px; padding: 3px 6px 3px 2px;
   border-bottom: 1px solid var(--ws-line); cursor: pointer;
-  font-size: 12px; background: #2b2b2b; color: #d4d4d4;
+  font-size: 12px; background: var(--ws-panel-2); color: #d4d4d4;
 }
 .layer-row.is-active {
   background: #4a6b8a; color: #fff;
+}
+.layer-row.is-hidden { opacity: 0.55; }
+.layer-row.is-hidden .layer-row-name {
+  text-decoration: line-through;
+  text-decoration-color: rgb(255 255 255 / .35);
 }
 .layer-row-grip {
   width: 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
@@ -932,6 +946,97 @@ body.is-dock-split-dragging * {
 .layer-context-menu-item.is-danger { color: #f87171; }
 .layer-context-menu-item.is-danger:hover { background: rgb(239 68 68 / .12); color: #fca5a5; }
 
+/* 画板行悬停/长按：左侧树形在场用户 */
+.board-row.is-occupant-open {
+  z-index: 1;
+}
+.board-occupant-tree {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  pointer-events: auto;
+  max-width: min(220px, 42vw);
+}
+.board-occupant-names {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px 6px 8px;
+  background: var(--ws-panel-2);
+  border: 1px solid var(--ws-line);
+  box-shadow: 0 4px 14px rgb(0 0 0 / .35);
+}
+.board-occupant-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  padding: 3px 16px 3px 0;
+  font-size: 12px;
+  color: var(--ws-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board-occupant-item::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 12px;
+  height: 2px;
+  background: var(--ws-line);
+  transform: translateY(-50%);
+}
+.board-occupant-item.is-empty {
+  color: var(--ws-muted);
+  font-size: 11px;
+  padding-right: 0;
+}
+.board-occupant-item.is-empty::after { display: none; }
+.board-occupant-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ws-muted);
+}
+.board-occupant-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board-occupant-host {
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ws-muted);
+  border: 1px solid var(--ws-line);
+  border-radius: 2px;
+}
+.board-occupant-spine {
+  position: relative;
+  width: 14px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.board-occupant-spine-trunk {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ws-line);
+}
+.board-occupant-spine-arm {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 14px;
+  height: 2px;
+  background: var(--ws-line);
+  transform: translateY(-50%);
+}
+
 .export-menu { position: relative; }
 .export-menu-panel {
   position: absolute; right: 0; top: calc(100% + 2px); z-index: 40;
@@ -940,6 +1045,7 @@ body.is-dock-split-dragging * {
 }
 .export-menu-panel button { width: 100%; text-align: left; font-size: 12px; border-radius: 0; }
 .export-menu-hint { margin: 0 0 4px; font-size: 10px; color: var(--ws-muted); }
+.export-menu-hint--pbcc { font-style: italic; }
 
 .settings-modal {
   position: fixed; inset: 0; z-index: 3000;

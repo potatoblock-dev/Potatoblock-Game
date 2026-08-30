@@ -22,6 +22,15 @@
           <button type="button" id="randomRoomBtn" class="btn" title="随机加入可进入的房间">随机</button>
         </div>
         <button type="button" id="joinBtn" class="btn primary join-submit">进入房间</button>
+        <label class="join-restore-row">
+          <input type="checkbox" id="restoreLastBoard" checked>
+          <span>恢复本机上次保存的画板（仅房主有效）</span>
+        </label>
+        <div class="join-pbcc-row">
+          <button type="button" id="openPbccBtn" class="btn join-pbcc-btn">从 .pbcc 文件打开…</button>
+          <span id="openPbccHint" class="join-pbcc-hint"></span>
+          <input type="file" id="openPbccInput" class="join-pbcc-input" accept=".pbcc,application/json" hidden>
+        </div>
         <p id="joinError" class="join-error" role="alert"></p>
         <a href="/" class="join-back">← 返回游戏菜单</a>
       </div>
@@ -38,14 +47,15 @@
           <div class="collab-topbar-right">
             <button type="button" id="undoBtn" class="ws-btn" data-tooltip="撤销"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">undo</span>撤销</button>
             <button type="button" id="redoBtn" class="ws-btn" data-tooltip="重做"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">redo</span>重做</button>
-            <button type="button" id="clearBtn" class="ws-btn" data-tooltip="清空当前图层"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">layers_clear</span>清空图层</button>
             <div class="export-menu" id="exportMenu">
               <button type="button" id="exportToggleBtn" class="ws-btn" data-tooltip="导出画板"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">download</span>导出 ▾</button>
               <div class="export-menu-panel hidden" id="exportMenuPanel">
-                <p class="export-menu-hint">全部画板，每板一个文件</p>
+                <p class="export-menu-hint">PNG / JPEG / KRA：每画板一个文件</p>
                 <button type="button" data-export="png">PNG</button>
                 <button type="button" data-export="jpeg">JPEG</button>
                 <button type="button" data-export="kra">Krita (.kra)</button>
+                <p class="export-menu-hint export-menu-hint--pbcc">PBCC：全部画板打包为单文件</p>
+                <button type="button" data-export="pbcc">合作画板 (.pbcc)</button>
               </div>
             </div>
             <button type="button" id="copyLinkBtn" class="ws-btn" data-tooltip="复制房间链接"><span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">link</span>复制链接</button>
@@ -363,6 +373,8 @@
   <script src="/static/games/collab-canvas/js/board-panel.js"></script>
   <script src="/static/games/collab-canvas/js/zip-store.js"></script>
   <script src="/static/games/collab-canvas/js/kra-export.js"></script>
+  <script src="/static/games/collab-canvas/js/pbcc-format.js"></script>
+  <script src="/static/games/collab-canvas/js/pbcc-local-store.js"></script>
   <script src="/static/games/collab-canvas/js/collab-export.js"></script>
   <script src="/static/games/collab-canvas/js/shortcut-registry.js"></script>
   <script src="/static/games/collab-canvas/js/shortcut-manager.js"></script>

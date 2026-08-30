@@ -18,6 +18,7 @@
       this._hsv = ColorMath.rgbToHsv(...Object.values(ColorMath.hexToRgb(this.color)));
       this._renderMode();
       this._syncFromColor(false);
+      requestAnimationFrame(() => this._syncFromColor(false));
     }
 
     getColor() {
@@ -247,9 +248,12 @@
     /** 更新 HSV 方框与色相条上的取色指示器。 */
     _updateHsvCursors() {
       if (!this.svCursor || !this.hueCursor) return;
-      this.hueCursor.style.left = (this._hsv.h / 360 * 100) + '%';
-      this.svCursor.style.left = (this._hsv.s / 100 * 100) + '%';
-      this.svCursor.style.top = ((1 - this._hsv.v / 100) * 100) + '%';
+      const h = ColorMath.clamp(this._hsv.h, 0, 360);
+      const s = ColorMath.clamp(this._hsv.s, 0, 100);
+      const v = ColorMath.clamp(this._hsv.v, 0, 100);
+      this.hueCursor.style.left = (h / 360 * 100) + '%';
+      this.svCursor.style.left = s + '%';
+      this.svCursor.style.top = ((1 - v / 100) * 100) + '%';
     }
 
     _bindHueBar(el) {
@@ -355,8 +359,10 @@
       const w = this.wheelCanvas.width;
       const cx = w / 2;
       const r = w / 2 - 2;
-      const rad = this._hsv.h * Math.PI / 180;
-      const dist = (this._hsv.s / 100) * r;
+      const h = ColorMath.clamp(this._hsv.h, 0, 360);
+      const s = ColorMath.clamp(this._hsv.s, 0, 100);
+      const rad = h * Math.PI / 180;
+      const dist = (s / 100) * r;
       const x = cx + Math.cos(rad) * dist;
       const y = cx + Math.sin(rad) * dist;
       this.wheelCursor.style.left = (x / w * 100) + '%';

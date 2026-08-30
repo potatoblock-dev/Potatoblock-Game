@@ -130,8 +130,16 @@
 
     /** 构建树形扁平列表（UI 顶→底，含缩进深度）。 */
     _buildDisplayList() {
+      const idSet = new Set(this.layers.map(layer => layer.layer_id));
+      const normalized = this.layers.map(layer => {
+        const pid = layer.parent_id || '';
+        if (pid && !idSet.has(pid)) {
+          return Object.assign({}, layer, { parent_id: '' });
+        }
+        return layer;
+      });
       const byParent = new Map();
-      this.layers.forEach(layer => {
+      normalized.forEach(layer => {
         const pid = layer.parent_id || '';
         if (!byParent.has(pid)) byParent.set(pid, []);
         byParent.get(pid).push(layer);
@@ -147,6 +155,13 @@
         });
       };
       walk('', 0);
+      if (out.length === 0 && this.layers.length > 0) {
+        return normalized
+          .slice()
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .map(layer => ({ layer, depth: 0 }))
+          .reverse();
+      }
       return out.reverse();
     }
 
@@ -523,7 +538,9 @@
         const row = document.createElement('div');
         row.className = 'layer-row'
           + (isActive ? ' is-active' : '')
-          + (isGroup ? ' is-group' : '');
+          + (isGroup ? ' is-group' : '')
+          + (layer.visible === false ? ' is-hidden' : '')
+          + (layer.locked ? ' is-locked' : '');
         row.dataset.layerId = layer.layer_id;
         row.style.paddingLeft = (2 + depth * 12) + 'px';
 
@@ -548,8 +565,9 @@
 
         const visBtn = this._createRowIconBtn(
           layer.visible !== false ? 'visibility' : 'visibility_off',
-          '可见性'
+          layer.visible !== false ? '隐藏图层' : '显示图层'
         );
+        visBtn.setAttribute('aria-pressed', layer.visible === false ? 'false' : 'true');
         visBtn.addEventListener('click', event => {
           event.stopPropagation();
           this.onUpdate(layer.layer_id, { visible: layer.visible === false });
@@ -588,7 +606,8 @@
         const actions = document.createElement('div');
         actions.className = 'layer-row-actions';
 
-        const lockBtn = this._createRowIconBtn(layer.locked ? 'lock' : 'lock_open', '锁定图层');
+        const lockBtn = this._createRowIconBtn(layer.locked ? 'lock' : 'lock_open', layer.locked ? '解锁图层' : '锁定图层');
+        lockBtn.setAttribute('aria-pressed', layer.locked ? 'true' : 'false');
         lockBtn.addEventListener('click', event => {
           event.stopPropagation();
           this.onUpdate(layer.layer_id, { locked: !layer.locked });

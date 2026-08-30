@@ -19,7 +19,7 @@
   const ACTION_DEFS = {
     undo: { label: '撤销', category: 'history', bindings: ['Mod+KeyZ', ''] },
     redo: { label: '重做', category: 'history', bindings: ['Mod+Shift+KeyZ', 'Mod+KeyY'] },
-    clearLayer: { label: '清空当前图层', category: 'history', bindings: ['Delete', ''] },
+    clearLayer: { label: '清空当前图层', category: 'history', bindings: ['', ''] },
     toolBrush: { label: '画笔工具', category: 'tools', bindings: ['KeyB', ''] },
     toolEraser: { label: '橡皮工具', category: 'tools', bindings: ['KeyE', ''] },
     toolZoom: { label: '缩放工具', category: 'tools', bindings: ['KeyZ', ''] },
@@ -51,7 +51,8 @@
     swapColors: { label: '交换主色/背景色', category: 'color', bindings: ['KeyX', ''] },
     exportPng: { label: '导出 PNG', category: 'export', bindings: ['', ''] },
     exportJpeg: { label: '导出 JPEG', category: 'export', bindings: ['', ''] },
-    exportKra: { label: '导出 KRA', category: 'export', bindings: ['', ''] }
+    exportKra: { label: '导出 KRA', category: 'export', bindings: ['', ''] },
+    exportPbcc: { label: '导出 PBCC', category: 'export', bindings: ['', ''] }
   };
 
   /** 深拷贝默认绑定表。 */

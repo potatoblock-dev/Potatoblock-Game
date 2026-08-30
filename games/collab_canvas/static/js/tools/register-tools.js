@@ -228,7 +228,9 @@
       onPointerDown(ctx) {
         if (!board.canDraw) return false;
         if (board._activeLayerLocked()) return false;
+        if (board.penInput.isStylus(ctx.event)) board.penInput.markPenActivity(ctx.event, true);
         board._geoStart = board.normalizedPoint(ctx.event);
+        board._geoStrokeSize = board.penInput.strokeSize(ctx.event);
         board._geoDragging = true;
         ctx.event.preventDefault();
         if (board.canvas) board.canvas.setPointerCapture(ctx.event.pointerId);
@@ -237,6 +239,7 @@
       onPointerMove(ctx) {
         if (!board._geoDragging || !board._geoStart) return false;
         const pt = board.normalizedPoint(ctx.event);
+        const size = board._geoStrokeSize != null ? board._geoStrokeSize : board.currentSize;
         if (!overlay) return true;
         if (isLine) {
           overlay.setPreview({
@@ -246,7 +249,7 @@
             x2: pt.x,
             y2: pt.y,
             color: board.currentColor,
-            size: board.currentSize
+            size
           });
         } else {
           overlay.setPreview({
@@ -256,7 +259,7 @@
             x2: pt.x,
             y2: pt.y,
             color: board.currentColor,
-            size: board.currentSize,
+            size,
             filled: spec.filled
           });
         }
@@ -264,6 +267,7 @@
       },
       onPointerUp(ctx) {
         if (!board._geoDragging || !board._geoStart) return false;
+        const size = board._geoStrokeSize != null ? board._geoStrokeSize : board.currentSize;
         const pt = board.normalizedPoint(ctx.event);
         let x2 = pt.x;
         let y2 = pt.y;
@@ -289,7 +293,7 @@
           x2,
           y2,
           color: board.currentColor,
-          size: board.currentSize
+          size
         } : {
           tool: spec.tool,
           x1: board._geoStart.x,
@@ -297,7 +301,7 @@
           x2,
           y2,
           color: board.currentColor,
-          size: board.currentSize,
+          size,
           filled: spec.filled
         };
         const strokeId = crypto.randomUUID();
@@ -306,6 +310,8 @@
         board._redraw();
         board._geoDragging = false;
         board._geoStart = null;
+        board._geoStrokeSize = null;
+        if (board.penInput.isStylus(ctx.event)) board.penInput.clearPenPointer(ctx.event);
         if (overlay) overlay.clear();
         return true;
       }

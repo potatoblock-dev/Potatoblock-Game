@@ -11,6 +11,14 @@
   const statusEl = document.getElementById('statusText');
   const joinErrorEl = document.getElementById('joinError');
   const roomInput = document.getElementById('roomInput');
+  const restoreCheckbox = document.getElementById('restoreLastBoard');
+  const openPbccBtn = document.getElementById('openPbccBtn');
+  const openPbccInput = document.getElementById('openPbccInput');
+  const openPbccHint = document.getElementById('openPbccHint');
+
+  let pendingPbccDocument = null;
+  let pendingRestoreLocal = false;
+  let restoreAttempted = false;
 
   const RESERVED = { 'random-room': 1, ws: 1 };
   const ROOM_ID_PATTERN = /^[A-Z0-9][A-Z0-9_-]{1,5}$/;
@@ -191,7 +199,19 @@
     onSwitch: boardId => boardController && boardController.switchBoard(boardId),
     onCreate: () => boardController && boardController.createBoard(),
     onRename: (id, title) => boardController && boardController.renameBoard(id, title),
-    onDelete: id => boardController && boardController.deleteBoard(id)
+    onDelete: id => boardController && boardController.deleteBoard(id),
+    getPlayersForBoard: boardId => {
+      if (!boardController) return [];
+      const target = String(boardId || 'b_default');
+      return boardController.getPlayersSnapshot()
+        .filter(p => p.connected && String(p.active_board_id || 'b_default') === target)
+        .sort((a, b) => {
+          if (a.is_host && !b.is_host) return -1;
+          if (!a.is_host && b.is_host) return 1;
+          return String(a.name || '').localeCompare(String(b.name || ''), 'zh');
+        });
+    },
+    getSelfId: () => (boardController ? boardController.selfId : '')
   });
 
   const layerPanel = new LayerPanel(document.getElementById('layerPanelPane'), {
@@ -221,9 +241,36 @@
   }
 
   function leaveRoom() {
+    if (boardController) {
+      boardController.stopPbccAutoSave();
+      if (boardController.isHost()) {
+        boardController.saveLocalPbccSnapshot();
+      }
+    }
     session.disconnect();
     cursorOverlay.clear();
     showJoinScreen('');
+  }
+
+  /** 房主进房后尝试从 .pbcc 文件或本机记忆恢复。 */
+  async function maybeRestorePbccAfterJoin(data) {
+    if (restoreAttempted || !boardController) return;
+    restoreAttempted = true;
+    const isHost = data.self_id && data.self_id === data.owner_id;
+    if (!isHost) return;
+    let restoreResult = 'none';
+    if (pendingPbccDocument) {
+      restoreResult = await boardController.tryRestoreLocalPbcc({ document: pendingPbccDocument });
+      pendingPbccDocument = null;
+      if (openPbccHint) openPbccHint.textContent = '';
+    } else if (pendingRestoreLocal) {
+      restoreResult = await boardController.tryRestoreLocalPbcc({ fromLocal: true });
+      if (restoreResult === 'none') {
+        setStatus('未找到本机保存的画板');
+        window.setTimeout(() => setStatus(''), 3000);
+      }
+    }
+    boardController.schedulePbccAutoSave();
   }
 
   session = new CollabSession({
@@ -234,6 +281,10 @@
       close: () => setStatus('连接已断开，请刷新页面'),
       error: data => {
         const msg = data.message || '发生错误';
+        if (boardController) {
+          boardController._clearPendingLayerCreate();
+          boardController.cancelPbccRestorePending(msg);
+        }
         if (roomScreen && roomScreen.classList.contains('hidden')) {
           setJoinError(msg);
         } else {
@@ -264,9 +315,14 @@
             });
           });
         }
-        setStatus('');
+        if (boardController && boardController.finishPbccRestoreIfPending()) {
+          /* 恢复成功提示已由 finishPbccRestoreIfPending 设置 */
+        } else if (!boardController || !boardController._pbccRestorePending) {
+          setStatus('');
+        }
         const copyBtn = document.getElementById('copyLinkBtn');
         if (copyBtn) copyBtn.onclick = () => copyRoomLink();
+        maybeRestorePbccAfterJoin(data);
       },
       drawing_sync: data => boardController.handleDrawingSync(data),
       draw: data => boardController.handleDrawMessage(data),
@@ -294,6 +350,20 @@
             if (roomPanel) roomPanel.setPlayers(list);
           }
         }
+        if (boardPanel) boardPanel.refreshOccupantTree();
+      },
+      player_board: data => {
+        if (!boardController) return;
+        const list = boardController.getPlayersSnapshot().slice();
+        const idx = list.findIndex(p => p.uid === data.player_id);
+        if (idx >= 0) {
+          list[idx] = Object.assign({}, list[idx], {
+            active_board_id: data.board_id,
+            name: data.name || list[idx].name
+          });
+        }
+        boardController.setPlayersSnapshot(list);
+        if (boardPanel) boardPanel.refreshOccupantTree();
       },
       player_permissions: data => {
         boardController.handlePlayerPermissions(data);
@@ -316,13 +386,15 @@
             is_host: !!data.is_host,
             label_color: data.label_color || '',
             can_draw: data.can_draw !== false,
-            can_save: data.can_save !== false
+            can_save: data.can_save !== false,
+            active_board_id: 'b_default'
           };
           if (idx >= 0) list[idx] = Object.assign({}, list[idx], row);
           else list.push(row);
           boardController.setPlayersSnapshot(list);
           roomPanel.setPlayers(list);
         }
+        if (boardPanel) boardPanel.refreshOccupantTree();
         setStatus(`${data.name} 加入了房间`);
       },
       player_leave: data => {
@@ -341,6 +413,7 @@
             roomPanel.setPlayers(next);
           }
         }
+        if (boardPanel) boardPanel.refreshOccupantTree();
         if (data.message) setStatus(data.message);
       }
     }
@@ -441,7 +514,8 @@
   boardController.setRoomActions({
     copyLink: copyRoomLink,
     leaveRoom,
-    openSettings: () => settingsPanel.open()
+    openSettings: () => settingsPanel.open(),
+    setStatus
   });
 
   function enterRoom(roomId) {
@@ -455,8 +529,38 @@
       return;
     }
     setJoinError('');
+    pendingRestoreLocal = Boolean(restoreCheckbox && restoreCheckbox.checked);
+    if (global.PbccLocalStore) {
+      PbccLocalStore.setRestorePref(pendingRestoreLocal);
+    }
+    restoreAttempted = false;
     showRoomScreen(id);
     session.joinRoom(id);
+  }
+
+  if (restoreCheckbox && global.PbccLocalStore) {
+    restoreCheckbox.checked = PbccLocalStore.getRestorePref();
+    restoreCheckbox.addEventListener('change', () => {
+      PbccLocalStore.setRestorePref(restoreCheckbox.checked);
+    });
+  }
+
+  if (openPbccBtn && openPbccInput) {
+    openPbccBtn.addEventListener('click', () => openPbccInput.click());
+    openPbccInput.addEventListener('change', async () => {
+      const file = openPbccInput.files && openPbccInput.files[0];
+      openPbccInput.value = '';
+      if (!file || !global.PbccFormat) return;
+      try {
+        pendingPbccDocument = await PbccFormat.readFile(file);
+        if (openPbccHint) openPbccHint.textContent = file.name;
+        setJoinError('');
+      } catch (err) {
+        pendingPbccDocument = null;
+        if (openPbccHint) openPbccHint.textContent = '';
+        setJoinError(err.message || '无法读取 .pbcc 文件');
+      }
+    });
   }
 
   document.getElementById('joinBtn').addEventListener('click', () => {
@@ -484,6 +588,8 @@
   if (pathRoom && roomInput) roomInput.value = pathRoom;
 
   if (pathRoom) {
+    pendingRestoreLocal = Boolean(restoreCheckbox && restoreCheckbox.checked);
+    restoreAttempted = false;
     showRoomScreen(pathRoom);
     session.joinRoom(pathRoom);
   }

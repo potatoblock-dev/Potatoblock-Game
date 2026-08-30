@@ -10,6 +10,9 @@ MAX_STROKES = 1000
 MAX_SEGMENTS_PER_STROKE = 5000
 MAX_LAYERS_PER_BOARD = 20
 DEFAULT_LAYER_ID = "l_default"
+DEFAULT_BG_LAYER_ID = "l_background"
+DEFAULT_BG_STROKE_ID = "s_bg_white"
+SYSTEM_STROKE_OWNER = "__system__"
 LAYER_KIND_PAINT = "paint"
 LAYER_KIND_GROUP = "group"
 VALID_LAYER_KINDS = {LAYER_KIND_PAINT, LAYER_KIND_GROUP}
@@ -143,8 +146,18 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
 
 
 def default_layers() -> List[Dict[str, object]]:
-    """返回默认单图层列表。"""
+    """返回默认双层：底白底、顶透明绘画层（Krita 式）。"""
     return [
+        {
+            "layer_id": DEFAULT_BG_LAYER_ID,
+            "name": "背景",
+            "kind": LAYER_KIND_PAINT,
+            "parent_id": None,
+            "visible": True,
+            "opacity": 255,
+            "locked": False,
+            "order": 0,
+        },
         {
             "layer_id": DEFAULT_LAYER_ID,
             "name": "图层 1",
@@ -153,7 +166,31 @@ def default_layers() -> List[Dict[str, object]]:
             "visible": True,
             "opacity": 255,
             "locked": False,
-            "order": 0,
+            "order": 1,
+        },
+    ]
+
+
+def default_background_strokes() -> List[Dict[str, object]]:
+    """新画板白底：在背景层铺全画布白色填充。"""
+    return [
+        {
+            "stroke_id": DEFAULT_BG_STROKE_ID,
+            "owner_id": SYSTEM_STROKE_OWNER,
+            "layer_id": DEFAULT_BG_LAYER_ID,
+            "active": True,
+            "segments": [
+                {
+                    "tool": "rect",
+                    "x1": 0.0,
+                    "y1": 0.0,
+                    "x2": 1.0,
+                    "y2": 1.0,
+                    "color": "#ffffff",
+                    "size": 1,
+                    "filled": True,
+                }
+            ],
         }
     ]
 
@@ -184,6 +221,16 @@ def layer_parent_id(layer: Optional[Dict]) -> Optional[str]:
     return str(raw)
 
 
+def repair_orphan_layers(board: Dict) -> None:
+    """将 parent_id 指向不存在图层的层提升到根。"""
+    layers = board.get("layers") or []
+    ids = {str(layer["layer_id"]) for layer in layers}
+    for layer in layers:
+        parent = layer_parent_id(layer)
+        if parent and parent not in ids:
+            layer["parent_id"] = None
+
+
 def migrate_board_layers(board: Dict) -> None:
     """旧画板补全 layers 与 stroke.layer_id。"""
     if "layers" not in board or not board["layers"]:
@@ -194,6 +241,7 @@ def migrate_board_layers(board: Dict) -> None:
             layer["parent_id"] = None
         elif layer["parent_id"] == "":
             layer["parent_id"] = None
+    repair_orphan_layers(board)
     for stroke in board.get("strokes") or []:
         if "layer_id" not in stroke:
             stroke["layer_id"] = DEFAULT_LAYER_ID
@@ -300,9 +348,27 @@ def get_layer(board: Dict, layer_id: str) -> Optional[Dict]:
     return None
 
 
+def is_layer_locked(board: Dict, layer_id: str) -> bool:
+    """图层或其任意父组是否锁定。"""
+    migrate_board_layers(board)
+    current_id: Optional[str] = str(layer_id or DEFAULT_LAYER_ID)
+    while current_id:
+        layer = get_layer(board, current_id)
+        if not layer:
+            return False
+        if bool(layer.get("locked")):
+            return True
+        current_id = layer_parent_id(layer)
+    return False
+
+
 def layer_has_strokes(board: Dict, layer_id: str) -> bool:
-    """图层是否含非背景笔触。"""
+    """图层是否含用户笔触（不含系统白底）。"""
     for stroke in board.get("strokes") or []:
+        if stroke.get("owner_id") == SYSTEM_STROKE_OWNER:
+            continue
+        if stroke.get("stroke_id") == DEFAULT_BG_STROKE_ID:
+            continue
         if stroke.get("layer_id", DEFAULT_LAYER_ID) != layer_id:
             continue
         for segment in stroke.get("segments") or []:
@@ -466,8 +532,10 @@ def redo_player_stroke(
 ) -> Optional[Dict]:
     """Restore the player's most recently undone stroke."""
     stack = redo_stacks.setdefault(player_id, [])
-    if not stack:
-        return None
-    stroke = stack.pop()
-    stroke["active"] = True
-    return stroke
+    while stack:
+        stroke = stack.pop()
+        if stroke.get("owner_id") != player_id:
+            continue
+        stroke["active"] = True
+        return stroke
+    return None

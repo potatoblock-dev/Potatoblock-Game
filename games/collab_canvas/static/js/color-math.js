@@ -38,7 +38,7 @@
       else h = ((r - g) / d + 4) * 60;
     }
     const s = max === 0 ? 0 : (d / max) * 100;
-    return { h, s: s * 100, v: max * 100 };
+    return { h, s, v: max * 100 };
   }
 
   /** HSV → RGB hex；满饱和满亮度时用整数扇区避免浮点误差。 */

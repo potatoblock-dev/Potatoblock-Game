@@ -3,6 +3,7 @@
 
   const DEFAULT_BOARD_ID = 'b_default';
   const BOARD_CREATE_COOLDOWN_MS = 60000;
+  const LONG_PRESS_MS = 450;
 
   /** 右下画板列表面板（复用图层行布局）。 */
   class BoardPanel {
@@ -17,10 +18,19 @@
       this.onDelete = settings.onDelete || (() => {});
       this.isOwner = settings.isOwner || (() => false);
       this.getCreateCooldownMs = settings.getCreateCooldownMs || (() => 0);
+      this.getPlayersForBoard = settings.getPlayersForBoard || (() => []);
+      this.getSelfId = settings.getSelfId || (() => '');
       this.activeBoardId = '';
       this.boards = [];
       this._cooldownTimer = null;
       this._openMenu = null;
+      this._occupantTree = null;
+      this._occupantAnchor = null;
+      this._occupantBoardId = '';
+      this._occupantHideTimer = null;
+      this._longPressTimer = null;
+      this._longPressTriggered = false;
+      this._supportsHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
       if (this.addBtn) {
         this.addBtn.addEventListener('click', () => {
           if (this.addBtn.disabled) return;
@@ -72,6 +82,13 @@
       });
     }
 
+    /** 成员画板变更时刷新已展开的在场用户树。 */
+    refreshOccupantTree() {
+      if (!this._occupantTree || !this._occupantAnchor) return;
+      this._renderOccupantTreeContent(this._occupantTree, this._occupantBoardId);
+      this._positionOccupantTree(this._occupantAnchor, this._occupantTree);
+    }
+
     _startCooldownTimer() {
       if (this._cooldownTimer) return;
       this._cooldownTimer = setInterval(() => {
@@ -118,8 +135,163 @@
       this._openMenu = null;
     }
 
+    _clearLongPressTimer() {
+      if (this._longPressTimer) {
+        clearTimeout(this._longPressTimer);
+        this._longPressTimer = null;
+      }
+    }
+
+    _cancelHideOccupantTree() {
+      if (this._occupantHideTimer) {
+        clearTimeout(this._occupantHideTimer);
+        this._occupantHideTimer = null;
+      }
+    }
+
+    /** 关闭画板在场用户树形浮层。 */
+    _hideOccupantTree() {
+      this._cancelHideOccupantTree();
+      if (this._occupantAnchor) {
+        this._occupantAnchor.classList.remove('is-occupant-open');
+      }
+      if (this._occupantTree && this._occupantTree.parentNode) {
+        this._occupantTree.parentNode.removeChild(this._occupantTree);
+      }
+      this._occupantTree = null;
+      this._occupantAnchor = null;
+      this._occupantBoardId = '';
+    }
+
+    _scheduleHideOccupantTree() {
+      this._cancelHideOccupantTree();
+      this._occupantHideTimer = setTimeout(() => this._hideOccupantTree(), 140);
+    }
+
+    /** 填充树形用户名列表。 */
+    _renderOccupantTreeContent(treeEl, boardId) {
+      const namesEl = treeEl.querySelector('[data-board-occupant-names]');
+      if (!namesEl) return;
+      namesEl.innerHTML = '';
+      const players = this.getPlayersForBoard(boardId);
+      const selfId = this.getSelfId();
+      if (!players.length) {
+        const empty = document.createElement('div');
+        empty.className = 'board-occupant-item is-empty';
+        empty.textContent = '暂无在线用户';
+        namesEl.appendChild(empty);
+        return;
+      }
+      players.forEach(player => {
+        const item = document.createElement('div');
+        item.className = 'board-occupant-item';
+        const dot = document.createElement('span');
+        dot.className = 'board-occupant-dot';
+        if (player.label_color) dot.style.backgroundColor = player.label_color;
+        const label = document.createElement('span');
+        label.className = 'board-occupant-label';
+        label.textContent = String(player.name || '玩家') + (player.uid === selfId ? '（你）' : '');
+        if (player.is_host) {
+          const badge = document.createElement('span');
+          badge.className = 'board-occupant-host';
+          badge.textContent = '房主';
+          label.appendChild(badge);
+        }
+        item.appendChild(dot);
+        item.appendChild(label);
+        namesEl.appendChild(item);
+      });
+    }
+
+    /** 将树形浮层定位到画板行左侧，连接线对齐行高中点。 */
+    _positionOccupantTree(anchorRow, treeEl) {
+      if (!anchorRow || !treeEl) return;
+      const rect = anchorRow.getBoundingClientRect();
+      treeEl.style.position = 'fixed';
+      treeEl.style.zIndex = '2100';
+      const treeRect = treeEl.getBoundingClientRect();
+      const armWidth = 14;
+      let left = rect.left - treeRect.width - armWidth;
+      if (left < 4) left = 4;
+      let top = rect.top + rect.height / 2 - treeRect.height / 2;
+      top = Math.max(4, Math.min(top, window.innerHeight - treeRect.height - 4));
+      treeEl.style.left = Math.round(left) + 'px';
+      treeEl.style.top = Math.round(top) + 'px';
+    }
+
+    /** 展示指定画板当前在线用户（树形侧栏）。 */
+    _showOccupantTree(anchorRow, boardId) {
+      if (!anchorRow) return;
+      if (this._occupantTree && this._occupantAnchor === anchorRow) {
+        this._cancelHideOccupantTree();
+        return;
+      }
+      this._hideOccupantTree();
+      this._closeMenu();
+
+      const tree = document.createElement('div');
+      tree.className = 'board-occupant-tree';
+      tree.setAttribute('role', 'tooltip');
+      tree.dataset.boardId = boardId;
+
+      const names = document.createElement('div');
+      names.className = 'board-occupant-names';
+      names.setAttribute('data-board-occupant-names', '');
+
+      const spine = document.createElement('div');
+      spine.className = 'board-occupant-spine';
+      spine.setAttribute('aria-hidden', 'true');
+      spine.innerHTML = '<span class="board-occupant-spine-trunk"></span><span class="board-occupant-spine-arm"></span>';
+
+      tree.appendChild(names);
+      tree.appendChild(spine);
+      this._renderOccupantTreeContent(tree, boardId);
+      document.body.appendChild(tree);
+
+      this._occupantTree = tree;
+      this._occupantAnchor = anchorRow;
+      this._occupantBoardId = boardId;
+      anchorRow.classList.add('is-occupant-open');
+      this._positionOccupantTree(anchorRow, tree);
+
+      tree.addEventListener('mouseenter', () => this._cancelHideOccupantTree());
+      tree.addEventListener('mouseleave', () => this._scheduleHideOccupantTree());
+    }
+
+    /** 绑定桌面悬停与移动端长按。 */
+    _bindOccupantTriggers(row, boardId) {
+      if (this._supportsHover) {
+        row.addEventListener('mouseenter', () => {
+          this._cancelHideOccupantTree();
+          this._showOccupantTree(row, boardId);
+        });
+        row.addEventListener('mouseleave', () => this._scheduleHideOccupantTree());
+      }
+
+      row.addEventListener('pointerdown', event => {
+        if (this._supportsHover && event.pointerType === 'mouse') return;
+        this._longPressTriggered = false;
+        this._clearLongPressTimer();
+        this._longPressTimer = setTimeout(() => {
+          this._longPressTriggered = true;
+          this._showOccupantTree(row, boardId);
+        }, LONG_PRESS_MS);
+      });
+      row.addEventListener('pointerup', () => this._clearLongPressTimer());
+      row.addEventListener('pointercancel', () => this._clearLongPressTimer());
+      row.addEventListener('pointerleave', () => this._clearLongPressTimer());
+
+      row.addEventListener('click', event => {
+        if (!this._longPressTriggered) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this._longPressTriggered = false;
+      }, true);
+    }
+
     _showContextMenu(board, clientX, clientY) {
       if (!this.isOwner() || board.board_id === DEFAULT_BOARD_ID) return;
+      this._hideOccupantTree();
       this._closeMenu();
       const menu = document.createElement('div');
       menu.className = 'layer-context-menu';
@@ -154,17 +326,26 @@
     }
 
     _onDocPointer(event) {
-      if (!this._openMenu) return;
-      if (this._openMenu.contains(event.target)) return;
-      this._closeMenu();
+      if (this._openMenu && !this._openMenu.contains(event.target)) {
+        this._closeMenu();
+      }
+      if (this._occupantTree) {
+        const onRow = this._occupantAnchor && this._occupantAnchor.contains(event.target);
+        const onTree = this._occupantTree.contains(event.target);
+        if (!onRow && !onTree) this._hideOccupantTree();
+      }
     }
 
     _onDocKey(event) {
-      if (event.key === 'Escape') this._closeMenu();
+      if (event.key === 'Escape') {
+        this._closeMenu();
+        this._hideOccupantTree();
+      }
     }
 
     _render(boardOrder) {
       if (!this.listEl) return;
+      this._hideOccupantTree();
       this.listEl.innerHTML = '';
       const order = boardOrder.length ? boardOrder : this.boards.map(b => b.board_id);
       const owner = this.isOwner();
@@ -221,6 +402,8 @@
         row.appendChild(typeIcon);
         row.appendChild(name);
         row.appendChild(actions);
+
+        this._bindOccupantTriggers(row, boardId);
 
         row.addEventListener('click', () => {
           if (boardId !== this.activeBoardId) this.onSwitch(boardId);

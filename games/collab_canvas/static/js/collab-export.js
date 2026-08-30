@@ -47,6 +47,14 @@
     return new Uint8ClampedArray(ctx.getImageData(0, 0, width, height).data);
   }
 
+  /** 默认双层：底白背景 + 顶绘画层。 */
+  function defaultLayerStack() {
+    return [
+      { layer_id: 'l_background', name: '背景', visible: true, opacity: 255, order: 0 },
+      { layer_id: 'l_default', name: '图层 1', visible: true, opacity: 255, order: 1 }
+    ];
+  }
+
   /** 从 strokes 按图层合成渲染 RGBA 像素。 */
   async function strokesToRgba(strokes, canvasSpec, layersMeta, options) {
     const opts = options || {};
@@ -61,7 +69,7 @@
     });
     const layers = layersMeta && layersMeta.length
       ? layersMeta
-      : [{ layer_id: 'l_default', name: '图层 1', visible: true, opacity: 255, order: 0 }];
+      : defaultLayerStack();
     board.redraw(DrawingBoard.cloneStrokes(strokes || []), layers);
     const ctx = board.canvas.getContext('2d');
     let rgba = new Uint8ClampedArray(ctx.getImageData(0, 0, width, height).data);
@@ -81,7 +89,7 @@
     const spec = canvasSpec || {};
     const width = Number(spec.width) || 960;
     const height = Number(spec.height) || 540;
-    const layers = (layersMeta || [{ layer_id: 'l_default', name: '图层 1', visible: true, opacity: 255, order: 0 }])
+    const layers = (layersMeta && layersMeta.length ? layersMeta : defaultLayerStack())
       .slice()
       .sort((a, b) => (a.order || 0) - (b.order || 0));
     const list = strokes || [];
@@ -151,6 +159,24 @@
           docName: meta && meta.docName
         });
       }
+    },
+    pbcc: {
+      id: 'pbcc',
+      label: '合作画板 (.pbcc)',
+      extension: 'pbcc',
+      mime: 'application/vnd.potatoblock.collab-canvas+json',
+      multiBoardSingleFile: true,
+      async encode(_rgba, _width, _height, meta) {
+        if (!global.PbccFormat) throw new Error('PBCC 模块未加载');
+        const document = PbccFormat.buildDocument({
+          roomId: meta.roomId,
+          boardOrder: meta.boardOrder,
+          boards: meta.boards,
+          exportedByUid: meta.exportedByUid,
+          exportedByName: meta.exportedByName
+        });
+        return PbccFormat.encodeBlob(document);
+      }
     }
   };
 
@@ -201,13 +227,24 @@
       });
     }
 
-    /** 批量导出多个画板，每个画板一个文件。 */
+    /** 批量导出多个画板；pbcc 为单文件打包全部画板。 */
     async exportBoards(formatId, boards, options) {
       const opts = options || {};
       const roomId = sanitizeFilename(opts.roomId || 'room');
       const delayMs = Number(opts.delayMs) || 120;
       const format = this.get(formatId);
       if (!format) throw new Error('不支持的导出格式');
+      if (format.multiBoardSingleFile) {
+        const blob = await format.encode(null, 0, 0, {
+          roomId: opts.roomId || roomId,
+          boardOrder: boards.map(b => b.meta && b.meta.board_id).filter(Boolean),
+          boards,
+          exportedByUid: opts.exportedByUid || '',
+          exportedByName: opts.exportedByName || ''
+        });
+        downloadBlob(blob, `${roomId}_room.${format.extension}`);
+        return;
+      }
       for (let i = 0; i < boards.length; i += 1) {
         const board = boards[i];
         const blob = await this.exportBoard(formatId, board.meta, board.strokes);
@@ -217,6 +254,19 @@
           await new Promise(resolve => setTimeout(resolve, delayMs));
         }
       }
+    }
+
+    /** 构建 .pbcc 文档对象（不下载）。 */
+    buildPbccDocument(boards, options) {
+      if (!global.PbccFormat) throw new Error('PBCC 模块未加载');
+      const opts = options || {};
+      return PbccFormat.buildDocument({
+        roomId: opts.roomId,
+        boardOrder: opts.boardOrder,
+        boards,
+        exportedByUid: opts.exportedByUid,
+        exportedByName: opts.exportedByName
+      });
     }
   }
 
