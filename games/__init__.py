@@ -59,3 +59,13 @@ def register_routers(fastapi_app):
             StaticFiles(directory=str(common_static)),
             name="game-static-common",
         )
+    try:
+        from app.pwa_routes import attach_pwa_routes
+        attach_pwa_routes(fastapi_app)
+    except ImportError:
+        pass
+    try:
+        from app.auto_update import attach_auto_update
+        attach_auto_update(fastapi_app)
+    except ImportError:
+        pass
