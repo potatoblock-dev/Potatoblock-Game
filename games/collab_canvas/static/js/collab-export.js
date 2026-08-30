@@ -151,12 +151,72 @@
       id: 'kra',
       label: 'Krita (.kra)',
       extension: 'kra',
+      category: 'special',
       async encode(_rgba, width, height, meta) {
         const pack = await layersToRgbaList(meta.strokes, meta.canvas, meta.layers);
         const composite = await strokesToRgba(meta.strokes, meta.canvas, meta.layers);
         return KraExport.buildKraBlobMulti(composite.rgba, width, height, pack.layerPixels, {
           title: meta && meta.title,
           docName: meta && meta.docName
+        });
+      }
+    },
+    skt: {
+      id: 'skt',
+      label: 'Sketchbook (.skt)',
+      extension: 'skt',
+      category: 'special',
+      async encode(_rgba, width, height, meta) {
+        const pack = await layersToRgbaList(meta.strokes, meta.canvas, meta.layers);
+        const composite = await strokesToRgba(meta.strokes, meta.canvas, meta.layers);
+        if (!global.SktExport) throw new Error('Sketchbook 导出模块未加载');
+        return SktExport.buildSketchbookTiffBlob(composite.rgba, width, height, pack.layerPixels, {
+          title: meta && meta.title
+        });
+      }
+    },
+    hsj: {
+      id: 'hsj',
+      label: '画世界 Pro (.hsj)',
+      extension: 'hsj',
+      category: 'special',
+      async encode(_rgba, width, height, meta) {
+        const pack = await layersToRgbaList(meta.strokes, meta.canvas, meta.layers);
+        const composite = await strokesToRgba(meta.strokes, meta.canvas, meta.layers);
+        if (!global.HsjExport) throw new Error('画世界 Pro 导出模块未加载');
+        return HsjExport.buildHsjBlob(composite.rgba, width, height, pack.layerPixels, {
+          title: meta && meta.title
+        });
+      }
+    },
+    procreate: {
+      id: 'procreate',
+      label: 'Procreate (.procreate)',
+      extension: 'procreate',
+      category: 'special',
+      async encode(_rgba, width, height, meta) {
+        const pack = await layersToRgbaList(meta.strokes, meta.canvas, meta.layers);
+        const composite = await strokesToRgba(meta.strokes, meta.canvas, meta.layers);
+        if (!global.ProcreateExport) throw new Error('Procreate 导出模块未加载');
+        return ProcreateExport.buildProcreateBlob(composite.rgba, width, height, pack.layerPixels, {
+          title: meta && meta.title
+        });
+      }
+    },
+    psd: {
+      id: 'psd',
+      label: 'Photoshop (.psd)',
+      extension: 'psd',
+      category: 'special',
+      async encode(_rgba, width, height, meta) {
+        const pack = await layersToRgbaList(meta.strokes, meta.canvas, meta.layers);
+        const composite = await strokesToRgba(meta.strokes, meta.canvas, meta.layers);
+        if (!global.PsdExport) throw new Error('Photoshop 导出模块未加载');
+        const layerPixels = pack.layerPixels.length
+          ? pack.layerPixels
+          : [{ name: meta && meta.title ? meta.title : 'Merged', opacity: 255, rgba: composite.rgba }];
+        return PsdExport.buildPsdBlob(composite.rgba, width, height, layerPixels, {
+          title: meta && meta.title
         });
       }
     },
@@ -209,7 +269,8 @@
       const layers = (boardMeta && boardMeta.layers) || [];
       const title = (boardMeta && boardMeta.title) || '画板';
       const exportOpts = (boardMeta && boardMeta.exportOptions) || {};
-      if (formatId === 'kra') {
+      const layeredFormats = { kra: 1, skt: 1, hsj: 1, procreate: 1, psd: 1 };
+      if (layeredFormats[formatId]) {
         const { rgba, width, height } = await strokesToRgba(strokes, spec, layers, exportOpts);
         return format.encode(rgba, width, height, {
           title,

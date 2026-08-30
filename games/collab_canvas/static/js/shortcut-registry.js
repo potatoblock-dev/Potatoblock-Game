@@ -52,6 +52,10 @@
     exportPng: { label: '导出 PNG', category: 'export', bindings: ['', ''] },
     exportJpeg: { label: '导出 JPEG', category: 'export', bindings: ['', ''] },
     exportKra: { label: '导出 KRA', category: 'export', bindings: ['', ''] },
+    exportSkt: { label: '导出 Sketchbook', category: 'export', bindings: ['', ''] },
+    exportHsj: { label: '导出画世界 Pro', category: 'export', bindings: ['', ''] },
+    exportProcreate: { label: '导出 Procreate', category: 'export', bindings: ['', ''] },
+    exportPsd: { label: '导出 Photoshop', category: 'export', bindings: ['', ''] },
     exportPbcc: { label: '导出 PBCC', category: 'export', bindings: ['', ''] }
   };
 

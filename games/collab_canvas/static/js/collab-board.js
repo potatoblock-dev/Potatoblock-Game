@@ -313,6 +313,22 @@
           if (!this.canSave) return;
           this.exportAllBoards('kra');
           return;
+        case 'exportSkt':
+          if (!this.canSave) return;
+          this.exportAllBoards('skt');
+          return;
+        case 'exportHsj':
+          if (!this.canSave) return;
+          this.exportAllBoards('hsj');
+          return;
+        case 'exportProcreate':
+          if (!this.canSave) return;
+          this.exportAllBoards('procreate');
+          return;
+        case 'exportPsd':
+          if (!this.canSave) return;
+          this.exportAllBoards('psd');
+          return;
         case 'exportPbcc':
           if (!this.canSave) return;
           this.exportAllBoards('pbcc');
@@ -678,10 +694,8 @@
       }
       this.layersMeta = this.layersMeta.filter(l => l.layer_id !== data.layer_id);
       this.strokes = this.strokes.filter(s => String(s.layer_id || 'l_default') !== data.layer_id);
-      if (this.activeLayerId === data.layer_id) {
-        this.activeLayerId = this.layersMeta.length
-          ? this.layersMeta[this.layersMeta.length - 1].layer_id
-          : 'l_default';
+      if (this.activeLayerId === data.layer_id || !this.layersMeta.some(l => l.layer_id === this.activeLayerId)) {
+        this.activeLayerId = this._topPaintLayerId();
       }
       if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
       this._redraw();
@@ -733,7 +747,18 @@
       return layer;
     }
 
-    /** 保证至少有两层：底白背景 + 顶绘画层。 */
+    /** 将 parent_id 指向不存在图层的项提升到根（与服务端 repair_orphan_layers 一致）。 */
+    _repairOrphanLayers(layers) {
+      const idSet = new Set((layers || []).map(layer => layer.layer_id));
+      return (layers || []).map(layer => {
+        const copy = this._normalizeLayerMeta(Object.assign({}, layer));
+        const parentId = copy.parent_id || '';
+        if (parentId && !idSet.has(parentId)) copy.parent_id = '';
+        return copy;
+      });
+    }
+
+    /** 保证至少有一层可绘制「图层 1」（空列表时含背景 + 图层 1）。 */
     _coerceLayers(layers) {
       const fallback = [
         {
@@ -757,8 +782,28 @@
           order: 1
         }
       ];
-      const source = !Array.isArray(layers) || layers.length === 0 ? fallback : layers;
-      return source.map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
+      let source = !Array.isArray(layers) || layers.length === 0
+        ? fallback.slice()
+        : layers.map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
+      source = this._repairOrphanLayers(source);
+      const userPaints = source.filter(
+        layer => !this._isGroupLayer(layer) && layer.layer_id !== 'l_background'
+      );
+      if (!userPaints.length) {
+        const maxOrder = source.reduce((max, layer) => Math.max(max, layer.order || 0), 0);
+        const ids = new Set(source.map(layer => layer.layer_id));
+        source.push({
+          layer_id: ids.has('l_default') ? ('l_' + Date.now().toString(36)) : 'l_default',
+          name: '图层 1',
+          kind: 'paint',
+          parent_id: '',
+          visible: true,
+          opacity: 255,
+          locked: false,
+          order: maxOrder + 1
+        });
+      }
+      return source;
     }
 
     /** 将被删组/层的子图层挂到新 parent（空串为根）。 */
@@ -779,12 +824,16 @@
       return paints[paints.length - 1].layer_id;
     }
 
-    /** 新建图层时默认 parent：选中组则入组，否则与当前层同级。 */
+    /** 新建图层时默认 parent：选中组则入组，否则与当前层同级（无效 parent 视为根）。 */
     _resolveNewLayerParentId() {
       const active = this.layersMeta.find(l => l.layer_id === this.activeLayerId);
       if (!active) return '';
       if (this._isGroupLayer(active)) return active.layer_id;
-      return active.parent_id || '';
+      const parentId = active.parent_id || '';
+      if (!parentId) return '';
+      const parent = this.layersMeta.find(l => l.layer_id === parentId);
+      if (parent && this._isGroupLayer(parent)) return parentId;
+      return '';
     }
 
     /** 当前可绘制目标图层（选中组时落到组内顶层绘画层）。 */
@@ -820,7 +869,11 @@
     createLayer(options) {
       const opts = options || {};
       const kind = opts.kind || 'paint';
-      const parentId = opts.parentId != null ? opts.parentId : this._resolveNewLayerParentId();
+      let parentId = opts.parentId != null ? opts.parentId : this._resolveNewLayerParentId();
+      if (parentId) {
+        const parent = this.layersMeta.find(l => l.layer_id === parentId);
+        if (!parent || !this._isGroupLayer(parent)) parentId = '';
+      }
       const maxOrder = this.layersMeta.reduce((max, layer) => Math.max(max, layer.order || 0), 0);
       const paintCount = this.layersMeta.filter(l => !this._isGroupLayer(l)).length;
       const groupCount = this.layersMeta.filter(l => this._isGroupLayer(l)).length;
@@ -1295,7 +1348,8 @@
       const exportToggle = document.getElementById('exportToggleBtn');
       const exportPanel = document.getElementById('exportMenuPanel');
       if (exportToggle && exportPanel) {
-        exportToggle.addEventListener('click', () => {
+        exportToggle.addEventListener('click', event => {
+          event.stopPropagation();
           exportPanel.classList.toggle('hidden');
           const settingsModal = document.getElementById('settingsModal');
           if (settingsModal) settingsModal.classList.add('hidden');
@@ -1305,10 +1359,22 @@
           exportPanel.classList.add('hidden');
         });
       }
+      const exportSpecialToggle = document.getElementById('exportSpecialToggle');
+      const exportSpecialPanel = document.getElementById('exportSpecialPanel');
+      if (exportSpecialToggle && exportSpecialPanel) {
+        exportSpecialToggle.addEventListener('click', event => {
+          event.stopPropagation();
+          const open = exportSpecialPanel.classList.toggle('hidden');
+          exportSpecialToggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+        });
+      }
       document.querySelectorAll('[data-export]').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', event => {
+          event.stopPropagation();
           const formatId = btn.dataset.export || 'png';
           if (exportPanel) exportPanel.classList.add('hidden');
+          if (exportSpecialPanel) exportSpecialPanel.classList.add('hidden');
+          if (exportSpecialToggle) exportSpecialToggle.setAttribute('aria-expanded', 'false');
           this.exportAllBoards(formatId);
         });
       });

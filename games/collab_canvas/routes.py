@@ -34,6 +34,7 @@ from app.games.common.drawing_board import (
     SYSTEM_STROKE_OWNER,
     default_vector_canvas,
     duplicate_board_layer,
+    ensure_drawable_paint_layer,
     get_layer,
     is_group_layer,
     is_layer_locked,
@@ -68,6 +69,8 @@ logger = logging.getLogger(__name__)
 GAME_DIR = Path(__file__).resolve().parent
 GAME_ID = "collab_canvas"
 STATIC_URL = "/static/games/collab-canvas"
+# 静态资源 ?v= 版本号；改 JS/CSS 后递增以便生产绕过浏览器缓存。
+COLLAB_ASSET_VERSION = "20260830f"
 
 game_info = {
     "id": GAME_ID,
@@ -630,6 +633,7 @@ async def collab_canvas_page(request: Request, identity=Depends(get_optional_ide
             "user_id": user_id,
             "nickname": nickname,
             "initial_room": "",
+            "asset_version": COLLAB_ASSET_VERSION,
         },
     )
 
@@ -664,6 +668,7 @@ async def collab_canvas_room(
             "user_id": user_id,
             "nickname": nickname,
             "initial_room": room_id,
+            "asset_version": COLLAB_ASSET_VERSION,
         },
     )
 
@@ -1074,13 +1079,23 @@ async def collab_websocket(websocket: WebSocket):
                         await send_error(websocket, "图层上还有内容，请先清空")
                         continue
                 board["layers"] = [layer for layer in board["layers"] if layer["layer_id"] != layer_id]
+                added_layer = ensure_drawable_paint_layer(board)
                 if pdata.get("active_layer_id") == layer_id:
-                    pdata["active_layer_id"] = top_layer_id(board)
+                    pdata["active_layer_id"] = top_paint_layer_id(board)
                 await broadcast_to_board(
                     room_id,
                     board_id,
                     {"type": "layer_removed", "board_id": board_id, "layer_id": layer_id},
                 )
+                if added_layer:
+                    add_payload = {
+                        "type": "layer_added",
+                        "board_id": board_id,
+                        "layer": serialize_layers([added_layer])[0],
+                        "created_by": player_id,
+                    }
+                    await send_json(websocket, add_payload)
+                    await broadcast_to_board(room_id, board_id, add_payload, exclude_id=player_id)
                 continue
 
             if msg_type == "layer_rename":

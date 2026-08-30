@@ -257,6 +257,40 @@ def ensure_background_stroke(board: Dict) -> None:
         board["strokes"] = list(default_background_strokes()) + list(strokes)
 
 
+def ensure_drawable_paint_layer(board: Dict) -> Optional[Dict]:
+    """无用户可绘制图层时追加空白「图层 1」；返回新建图层或 None。"""
+    layers = board.get("layers") or []
+    if not layers:
+        board["layers"] = default_layers()
+        for layer in board["layers"]:
+            if str(layer.get("layer_id") or "") != DEFAULT_BG_LAYER_ID:
+                return layer
+        return None
+    user_paints = [
+        layer
+        for layer in layers
+        if is_paint_layer(layer) and str(layer.get("layer_id") or "") != DEFAULT_BG_LAYER_ID
+    ]
+    if user_paints:
+        return None
+    ids = {str(layer["layer_id"]) for layer in layers}
+    layer_id = DEFAULT_LAYER_ID if DEFAULT_LAYER_ID not in ids else ("l_" + uuid.uuid4().hex[:10])
+    max_order = max(int(layer.get("order", 0)) for layer in layers)
+    layer = {
+        "layer_id": layer_id,
+        "name": "图层 1",
+        "kind": LAYER_KIND_PAINT,
+        "parent_id": None,
+        "visible": True,
+        "opacity": 255,
+        "locked": False,
+        "order": max_order + 1,
+    }
+    layers.append(layer)
+    board["layers"] = layers
+    return layer
+
+
 def migrate_board_layers(board: Dict) -> None:
     """旧画板补全 layers 与 stroke.layer_id。"""
     if "layers" not in board or not board["layers"]:
@@ -272,6 +306,7 @@ def migrate_board_layers(board: Dict) -> None:
         if "layer_id" not in stroke:
             stroke["layer_id"] = DEFAULT_LAYER_ID
     ensure_background_stroke(board)
+    ensure_drawable_paint_layer(board)
 
 
 def serialize_layers(layers: List[Dict]) -> List[Dict[str, object]]:

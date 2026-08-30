@@ -81,6 +81,8 @@
 
 .collab-topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  position: relative;
+  z-index: 40;
   min-height: 40px; padding: 0 8px; background: var(--ws-panel); border-bottom: 1px solid var(--ws-line);
 }
 .collab-topbar-left, .collab-topbar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1050,7 +1052,16 @@ body.is-dock-split-dragging * {
 }
 .export-menu-panel button { width: 100%; text-align: left; font-size: 12px; border-radius: 0; }
 .export-menu-hint { margin: 0 0 4px; font-size: 10px; color: var(--ws-muted); }
-.export-menu-hint--pbcc { font-style: italic; }
+.export-menu-special { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; border-top: 1px solid var(--ws-line); padding-top: 4px; }
+.export-menu-special-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  text-align: left; font-size: 12px; padding: 6px 8px; border: none; background: var(--ws-panel-2);
+  color: var(--ws-text); cursor: pointer;
+}
+.export-menu-special-toggle[aria-expanded="true"] .export-menu-special-caret { transform: rotate(90deg); }
+.export-menu-special-caret { font-size: 10px; color: var(--ws-muted); transition: transform .12s ease; }
+.export-menu-special-panel { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--ws-line); margin-left: 6px; }
+.export-menu-special-panel.hidden { display: none; }
 
 .settings-modal {
   position: fixed; inset: 0; z-index: 3000;
