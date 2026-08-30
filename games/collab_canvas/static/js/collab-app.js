@@ -1,4 +1,4 @@
-(function () {
+(function (global) {
   'use strict';
 
   const boot = window.COLLAB_BOOT || {};
@@ -655,4 +655,4 @@
   if (typeof createCollabFullscreen === 'function') {
     createCollabFullscreen();
   }
-})();
+})(window);
