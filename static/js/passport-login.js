@@ -128,14 +128,13 @@
     });
   }
 
-  /** 平板/PWA 从 passport 返回后若 session 已写入则自动刷新登录态。 */
+    /** 平板/PWA 从 passport 返回后若 session 已写入则自动刷新登录态。 */
   function watchMobileLoginReturn() {
     if (!isMobileLike()) return;
     var pending = '';
     try {
       pending = sessionStorage.getItem('pb_passport_pending') || '';
     } catch (_err) {}
-    if (!pending) return;
 
     function pollMe() {
       fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' })
@@ -146,15 +145,20 @@
         .then(function (data) {
           if (!data || !data.user_id) return;
           try { sessionStorage.removeItem('pb_passport_pending'); } catch (_e) {}
-          finishLogin({ return: pending });
+          finishLogin({ return: pending || '/' });
         })
         .catch(function () {});
     }
 
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') pollMe();
-    });
-    pollMe();
+    function onReturn() {
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      pollMe();
+    }
+
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('pageshow', onReturn);
+    window.addEventListener('focus', onReturn);
+    onReturn();
   }
 
   if (document.readyState === 'loading') {
