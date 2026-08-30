@@ -70,6 +70,7 @@
 
         <div id="collabWorkspace" class="workspace drawing-board">
           <aside id="dockLeft" data-dock-slot="left"></aside>
+          <div id="dockGutterLeft" class="dock-width-gutter" data-dock-gutter="leading" aria-label="调整左侧栏宽度" role="separator" aria-orientation="vertical"></div>
 
           <div id="dockCenter" data-dock-slot="center">
             <div class="canvas-column">
@@ -85,20 +86,26 @@
             </div>
           </div>
 
+          <div id="dockGutterRight" class="dock-width-gutter" data-dock-gutter="trailing" aria-label="调整右侧栏宽度" role="separator" aria-orientation="vertical"></div>
           <aside id="dockRight" data-dock-slot="right">
             <div id="dockRightTop" data-dock-slot="rightTop">
               <div class="ws-panel-head">调色 / 工具</div>
               <div class="ws-panel-body">
                 <div id="colorPickerMount"></div>
                 <div class="tool-opts">
-                  <label class="brush-size-row">
-                    <span class="brush-size-label">粗细</span>
-                    <input id="brushSize" type="range" min="1" max="64" value="8">
-                  </label>
+                  <div class="brush-size-block">
+                    <div id="brushSizePreview" class="brush-size-preview" aria-hidden="true">
+                      <div class="brush-size-preview-ring"></div>
+                    </div>
+                    <label class="brush-size-row">
+                      <span class="brush-size-label">粗细</span>
+                      <input id="brushSize" type="range" min="1" max="64" value="8">
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
-            <div id="dockSplitter" aria-label="调整面板高度"></div>
+            <div id="dockSplitter" role="separator" aria-orientation="horizontal" aria-label="调整面板高度"></div>
             <div id="dockRightBottom" data-dock-slot="rightBottom">
               <div class="dock-bottom-tabs">
                 <button type="button" class="dock-bottom-tab is-active" data-bottom-tab="layers">图层</button>
@@ -106,17 +113,43 @@
               </div>
               <div id="layerPanelPane" class="dock-bottom-pane is-active" data-bottom-pane="layers">
                 <div class="layer-list" data-layer-list></div>
-                <div class="panel-footer-actions">
-                  <button type="button" data-layer-add data-tooltip="新建图层"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">add</span>新建</button>
-                  <button type="button" data-layer-delete data-tooltip="删除图层"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">delete</span>删除</button>
-                  <button type="button" data-layer-up data-tooltip="图层上移"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">arrow_upward</span>上移</button>
-                  <button type="button" data-layer-down data-tooltip="图层下移"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">arrow_downward</span>下移</button>
+                <div class="layer-footer-toolbar">
+                  <div class="layer-footer-split" data-layer-add-split>
+                    <button type="button" class="layer-footer-btn" data-layer-add-main data-tooltip="新建图层" aria-label="新建图层">
+                      <span class="material-symbols-outlined layer-footer-icon" aria-hidden="true">add</span>
+                    </button>
+                    <button type="button" class="layer-footer-btn layer-footer-caret" data-layer-add-menu data-tooltip="新建选项" aria-label="新建选项" aria-expanded="false">
+                      <span class="material-symbols-outlined layer-footer-caret-icon" aria-hidden="true">arrow_drop_down</span>
+                    </button>
+                  </div>
+                  <button type="button" class="layer-footer-btn" data-layer-group data-tooltip="创建图层组" aria-label="创建图层组">
+                    <span class="material-symbols-outlined layer-footer-icon" aria-hidden="true">folder</span>
+                  </button>
+                  <button type="button" class="layer-footer-btn" data-layer-duplicate data-tooltip="复制图层" aria-label="复制图层">
+                    <span class="material-symbols-outlined layer-footer-icon" aria-hidden="true">filter_none</span>
+                  </button>
+                  <button type="button" class="layer-footer-btn" data-layer-up data-tooltip="上移图层" aria-label="上移图层">
+                    <span class="material-symbols-outlined layer-footer-icon" aria-hidden="true">expand_less</span>
+                  </button>
+                  <button type="button" class="layer-footer-btn" data-layer-down data-tooltip="下移图层" aria-label="下移图层">
+                    <span class="material-symbols-outlined layer-footer-icon" aria-hidden="true">expand_more</span>
+                  </button>
+                  <div class="layer-footer-split" data-layer-props-split>
+                    <button type="button" class="layer-footer-btn" data-layer-props-main data-tooltip="图层属性" aria-label="图层属性" aria-expanded="false">
+                      <span class="material-symbols-outlined layer-footer-icon" aria-hidden="true">tune</span>
+                    </button>
+                    <button type="button" class="layer-footer-btn layer-footer-caret" data-layer-props-menu data-tooltip="图层属性选项" aria-label="图层属性选项" aria-expanded="false">
+                      <span class="material-symbols-outlined layer-footer-caret-icon" aria-hidden="true">arrow_drop_down</span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div id="boardPanelPane" class="dock-bottom-pane" data-bottom-pane="boards">
-                <div class="board-list" data-board-list></div>
-                <div class="panel-footer-actions">
-                  <button type="button" data-board-add data-tooltip="新建画板"><span class="material-symbols-outlined panel-action-icon" aria-hidden="true">add</span>新建画板</button>
+                <div class="board-list layer-list" data-board-list></div>
+                <div class="layer-footer-toolbar board-footer-toolbar">
+                  <button type="button" class="layer-footer-btn board-footer-add" data-board-add data-tooltip="新建画板" aria-label="新建画板">
+                    <span class="material-symbols-outlined layer-footer-icon" aria-hidden="true">add</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -144,81 +177,120 @@
         </div>
         <div class="settings-modal-body">
           <div class="settings-modal-pane is-active" data-settings-pane="general">
-            <label class="settings-row">
-              <span class="settings-row-label">取色模式</span>
-              <select id="settingsColorMode" class="settings-select"></select>
-            </label>
-            <button type="button" id="settingsResetView" class="settings-action-btn">重置视图</button>
-            <label class="settings-row">
-              <span class="settings-row-label">最近色排序</span>
-              <select id="settingsRecentOrder" class="settings-select">
-                <option value="recency">最近优先</option>
-                <option value="hsv">HSV 排序</option>
-              </select>
-            </label>
-            <label class="settings-row">
-              <span class="settings-row-label">最近色数量</span>
-              <input id="settingsRecentLimit" class="settings-select" type="number" min="2" max="24" step="1" value="12">
-            </label>
-            <label class="settings-row">
-              <span class="settings-row-label">填充容差</span>
-              <input id="settingsFillTolerance" type="range" min="0" max="64" step="1" value="20">
-              <output id="settingsFillToleranceOut">20</output>
-            </label>
-            <label class="settings-row">
-              <span class="settings-row-label">魔棒容差</span>
-              <input id="settingsWandTolerance" type="range" min="0" max="64" step="1" value="20">
-              <output id="settingsWandToleranceOut">20</output>
-            </label>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>取色</span></h3>
+              <label class="settings-row">
+                <span class="settings-row-label">取色模式</span>
+                <select id="settingsColorMode" class="settings-select"></select>
+              </label>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>视图</span></h3>
+              <button type="button" id="settingsResetView" class="settings-action-btn">重置视图</button>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>最近色设置</span></h3>
+              <label class="settings-row">
+                <span class="settings-row-label">最近色排序</span>
+                <select id="settingsRecentOrder" class="settings-select">
+                  <option value="recency">最近优先</option>
+                  <option value="hsv">HSV 排序</option>
+                </select>
+              </label>
+              <label class="settings-row">
+                <span class="settings-row-label">最近色数量</span>
+                <input id="settingsRecentLimit" class="settings-select" type="number" min="2" max="24" step="1" value="12">
+              </label>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>用户界面</span></h3>
+              <label class="settings-row settings-row-check">
+                <input id="settingsSwapSidebars" type="checkbox">
+                <span>反转左右栏</span>
+              </label>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>选区容差</span></h3>
+              <label class="settings-row">
+                <span class="settings-row-label">填充容差</span>
+                <input id="settingsFillTolerance" type="range" min="0" max="64" step="1" value="20">
+                <output id="settingsFillToleranceOut">20</output>
+              </label>
+              <label class="settings-row">
+                <span class="settings-row-label">魔棒容差</span>
+                <input id="settingsWandTolerance" type="range" min="0" max="64" step="1" value="20">
+                <output id="settingsWandToleranceOut">20</output>
+              </label>
+            </section>
           </div>
           <div class="settings-modal-pane" data-settings-pane="peripheral">
-            <label class="settings-row settings-row-check">
-              <input id="settingsPenPressure" type="checkbox"> 启用笔压
-            </label>
-            <label class="settings-row">
-              <span class="settings-row-label">灵敏度</span>
-              <input id="settingsPenSensitivity" type="range" min="25" max="200" step="5" value="100">
-              <output id="settingsPenSensitivityOut">100%</output>
-            </label>
-            <div class="pen-test-wrap">
-              <canvas id="penTestCanvas" class="pen-test-canvas" width="480" height="200" aria-label="笔压测试画板"></canvas>
-              <p class="settings-hint pen-test-pressure" data-pen-test-pressure></p>
-            </div>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>数位笔</span></h3>
+              <label class="settings-row settings-row-check">
+                <input id="settingsPenPressure" type="checkbox"> 启用笔压
+              </label>
+              <label class="settings-row">
+                <span class="settings-row-label">灵敏度</span>
+                <input id="settingsPenSensitivity" type="range" min="25" max="200" step="5" value="100">
+                <output id="settingsPenSensitivityOut">100%</output>
+              </label>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>笔压测试</span></h3>
+              <div class="pen-test-wrap">
+                <canvas id="penTestCanvas" class="pen-test-canvas" width="480" height="200" aria-label="笔压测试画板"></canvas>
+                <p class="settings-hint pen-test-pressure" data-pen-test-pressure></p>
+              </div>
+            </section>
           </div>
           <div class="settings-modal-pane" data-settings-pane="shortcuts">
-            <p class="settings-hint">点击键位按钮后按下组合键；右键点击可清除绑定。</p>
-            <div class="shortcut-list" data-shortcut-list></div>
-            <p class="settings-hint" data-shortcut-status>点击键位后按下新的组合键</p>
-            <button type="button" class="settings-action-btn" data-shortcut-reset>恢复默认快捷键</button>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>快捷键绑定</span></h3>
+              <p class="settings-hint">点击键位按钮后按下组合键；右键点击可清除绑定。</p>
+              <div class="shortcut-list" data-shortcut-list></div>
+              <p class="settings-hint" data-shortcut-status>点击键位后按下新的组合键</p>
+              <button type="button" class="settings-action-btn" data-shortcut-reset>恢复默认快捷键</button>
+            </section>
           </div>
           <div class="settings-modal-pane" data-settings-pane="online">
-            <p class="settings-hint">以下设置仅在本合作画板内生效，并保存在本机浏览器。</p>
-            <label class="settings-row settings-row-check">
-              <input id="settingsOnlineUsePassportName" type="checkbox" checked>
-              <span>使用通行证用户名</span>
-            </label>
-            <label class="settings-row">
-              <span class="settings-row-label">自定义名</span>
-              <input id="settingsOnlineDisplayName" class="settings-text-input" type="text" maxlength="24" placeholder="合作画板专用昵称" autocomplete="off">
-            </label>
-            <p class="settings-hint">关闭「使用通行证用户名」后，将显示上方自定义名称。</p>
-            <label class="settings-row">
-              <span class="settings-row-label">标签底色</span>
-              <input id="settingsOnlineLabelColor" type="color" value="#3b82f6">
-              <button type="button" id="settingsOnlineLabelReset" class="settings-action-btn">恢复默认</button>
-            </label>
-            <div class="online-label-preview-wrap">
-              <span class="settings-row-label">预览</span>
-              <span id="settingsOnlineLabelPreview" class="online-label-preview">你的昵称</span>
-            </div>
+            <p class="settings-hint settings-pane-lead">以下设置仅在本合作画板内生效，并保存在本机浏览器。</p>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>显示名称</span></h3>
+              <label class="settings-row settings-row-check">
+                <input id="settingsOnlineUsePassportName" type="checkbox" checked>
+                <span>使用通行证用户名</span>
+              </label>
+              <label class="settings-row">
+                <span class="settings-row-label">自定义名</span>
+                <input id="settingsOnlineDisplayName" class="settings-text-input" type="text" maxlength="24" placeholder="合作画板专用昵称" autocomplete="off">
+              </label>
+              <p class="settings-hint">关闭「使用通行证用户名」后，将显示上方自定义名称。</p>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>光标标签</span></h3>
+              <div class="online-label-color-block">
+                <div id="settingsOnlineLabelColorMount" class="online-label-color-mount"></div>
+                <button type="button" id="settingsOnlineLabelReset" class="settings-action-btn online-label-reset-btn">恢复默认</button>
+              </div>
+              <div class="online-label-preview-wrap">
+                <span class="settings-row-label">预览</span>
+                <span id="settingsOnlineLabelPreview" class="online-label-preview">你的昵称</span>
+              </div>
+            </section>
           </div>
           <div class="settings-modal-pane" data-settings-pane="network">
-            <div class="network-row"><span class="network-label">连接状态</span><span data-net-status>—</span></div>
-            <div class="network-row"><span class="network-label">房间号</span><span data-net-room>—</span></div>
-            <div class="network-row"><span class="network-label">延迟 RTT</span><span data-net-rtt>—</span></div>
-            <div class="network-row"><span class="network-label">最近检测</span><span data-net-time>—</span></div>
-            <p class="settings-hint network-error" data-net-error></p>
-            <button type="button" class="settings-action-btn" data-net-test>检测连接</button>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>连接信息</span></h3>
+              <div class="network-row"><span class="network-label">连接状态</span><span data-net-status>—</span></div>
+              <div class="network-row"><span class="network-label">房间号</span><span data-net-room>—</span></div>
+              <div class="network-row"><span class="network-label">延迟 RTT</span><span data-net-rtt>—</span></div>
+              <div class="network-row"><span class="network-label">最近检测</span><span data-net-time>—</span></div>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>网络诊断</span></h3>
+              <p class="settings-hint network-error" data-net-error></p>
+              <button type="button" class="settings-action-btn" data-net-test>检测连接</button>
+            </section>
           </div>
         </div>
       </div>
@@ -276,13 +348,17 @@
   <script src="/static/games/collab-canvas/js/tool-variant-store.js"></script>
   <script src="/static/games/collab-canvas/js/tool-controller.js"></script>
   <script src="/static/games/collab-canvas/js/canvas-overlay.js"></script>
+  <script src="/static/games/collab-canvas/js/material-icons.js"></script>
   <script src="/static/games/collab-canvas/js/selection-manager.js"></script>
+  <script src="/static/games/collab-canvas/js/selection-actions-bar.js"></script>
+  <script src="/static/games/collab-canvas/js/layer-move.js"></script>
   <script src="/static/games/collab-canvas/js/tools/register-tools.js"></script>
   <script src="/static/games/collab-canvas/js/ui-tooltip.js"></script>
-  <script src="/static/games/collab-canvas/js/material-icons.js"></script>
+  <script src="/static/games/collab-canvas/js/ui-prefs.js"></script>
   <script src="/static/games/collab-canvas/js/workspace-layout.js"></script>
   <script src="/static/games/collab-canvas/js/tool-rail.js"></script>
   <script src="/static/games/collab-canvas/js/popup-palette.js"></script>
+  <script src="/static/games/collab-canvas/js/layer-thumbnail.js"></script>
   <script src="/static/games/collab-canvas/js/layer-panel.js"></script>
   <script src="/static/games/collab-canvas/js/board-panel.js"></script>
   <script src="/static/games/collab-canvas/js/zip-store.js"></script>

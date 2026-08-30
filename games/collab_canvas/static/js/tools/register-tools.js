@@ -165,6 +165,61 @@
         }
       });
     });
+
+    controller.register('move', {
+      onPointerDown(ctx) {
+        const { event } = ctx;
+        if (!board.canDraw) return false;
+        if (board._activeLayerLocked()) return false;
+        event.preventDefault();
+        const pt = board.normalizedPoint(event);
+        if (selection && selection.isActive()) {
+          if (selection.onPointerDown(ctx)) {
+            if (board.canvas) board.canvas.setPointerCapture(event.pointerId);
+            return true;
+          }
+          return false;
+        }
+        board._moveDragging = true;
+        board._moveStart = pt;
+        board._moveLayerBbox = LayerMove.measureLayerBounds(board);
+        if (!board._moveLayerBbox) {
+          board._moveDragging = false;
+          board._moveStart = null;
+          return false;
+        }
+        if (board.canvas) board.canvas.setPointerCapture(event.pointerId);
+        return true;
+      },
+      onPointerMove(ctx) {
+        if (selection && selection.state === 'moving') {
+          return selection.onPointerMove(ctx);
+        }
+        if (!board._moveDragging || !board._moveStart) return false;
+        const pt = board.normalizedPoint(ctx.event);
+        const dx = pt.x - board._moveStart.x;
+        const dy = pt.y - board._moveStart.y;
+        if (overlay) LayerMove.showPreview(overlay, board, board._moveLayerBbox, dx, dy);
+        return true;
+      },
+      onPointerUp(ctx) {
+        if (selection && selection.state === 'moving') {
+          const handled = selection.onPointerUp(ctx);
+          if (overlay) overlay.setPreview(null);
+          return handled;
+        }
+        if (!board._moveDragging || !board._moveStart) return false;
+        const pt = board.normalizedPoint(ctx.event);
+        const dx = pt.x - board._moveStart.x;
+        const dy = pt.y - board._moveStart.y;
+        LayerMove.commitLayerMove(board, dx, dy);
+        board._moveDragging = false;
+        board._moveStart = null;
+        board._moveLayerBbox = null;
+        if (overlay) overlay.clear();
+        return true;
+      }
+    });
   }
 
   function makeGeometryHandler(board, overlay, spec) {

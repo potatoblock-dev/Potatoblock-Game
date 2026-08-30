@@ -3,6 +3,19 @@
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+  /** 将 0–1 归一化坐标贴边到 0/100%，避免差一点无法取满通道。 */
+  function snapUnit(t) {
+    const n = clamp(t, 0, 1);
+    if (n >= 0.998) return 1;
+    if (n <= 0.002) return 0;
+    return n;
+  }
+
+  /** 将 0–1 归一化坐标转为 0–100 百分比并贴边。 */
+  function snapPercent(t) {
+    return snapUnit(t) * 100;
+  }
+
   function rgbToHex(r, g, b) {
     const ch = n => clamp(Math.round(n), 0, 255).toString(16).padStart(2, '0');
     return '#' + ch(r) + ch(g) + ch(b);
@@ -28,9 +41,12 @@
     return { h, s: s * 100, v: max * 100 };
   }
 
-  /** HSV → RGB hex。 */
+  /** HSV → RGB hex；满饱和满亮度时用整数扇区避免浮点误差。 */
   function hsvToRgb(h, s, v) {
     s /= 100; v /= 100;
+    if (s >= 0.999 && v >= 0.999) {
+      return hsvToRgbFull(h);
+    }
     const c = v * s;
     const x = c * (1 - Math.abs((h / 60) % 2 - 1));
     const m = v - c;
@@ -42,6 +58,21 @@
     else if (h < 300) { rp = x; bp = c; }
     else { rp = c; bp = x; }
     return rgbToHex((rp + m) * 255, (gp + m) * 255, (bp + m) * 255);
+  }
+
+  /** 满饱和、满亮度下按色相扇区返回精确 RGB。 */
+  function hsvToRgbFull(h) {
+    const hue = ((h % 360) + 360) % 360;
+    const sector = Math.floor(hue / 60);
+    const f = (hue % 60) / 60;
+    switch (sector) {
+      case 0: return rgbToHex(255, Math.round(f * 255), 0);
+      case 1: return rgbToHex(Math.round((1 - f) * 255), 255, 0);
+      case 2: return rgbToHex(0, 255, Math.round(f * 255));
+      case 3: return rgbToHex(0, Math.round((1 - f) * 255), 255);
+      case 4: return rgbToHex(Math.round(f * 255), 0, 255);
+      default: return rgbToHex(255, 0, Math.round((1 - f) * 255));
+    }
   }
 
   function rgbToHsl(r, g, b) {
@@ -77,5 +108,5 @@
     return rgbToHex(hue2rgb(h + 1 / 3) * 255, hue2rgb(h) * 255, hue2rgb(h - 1 / 3) * 255);
   }
 
-  global.ColorMath = { clamp, rgbToHex, hexToRgb, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb };
+  global.ColorMath = { clamp, snapUnit, snapPercent, rgbToHex, hexToRgb, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb };
 })(window);

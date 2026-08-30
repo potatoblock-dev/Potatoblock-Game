@@ -57,6 +57,7 @@
   function showJoinScreen(message) {
     if (joinScreen) joinScreen.classList.remove('hidden');
     if (roomScreen) roomScreen.classList.add('hidden');
+    setCollabRoomScrollLock(false);
     setJoinError(message || '');
     setStatus('');
     try {
@@ -67,6 +68,7 @@
   function showRoomScreen(roomId) {
     if (joinScreen) joinScreen.classList.add('hidden');
     if (roomScreen) roomScreen.classList.remove('hidden');
+    setCollabRoomScrollLock(true);
     if (roomCodeEl) roomCodeEl.textContent = roomId;
     syncRoomDeepLink(roomId);
     setJoinError('');
@@ -100,7 +102,15 @@
   const zoomBadge = document.getElementById('canvasZoomBadge');
 
   disableCollabBrowserZoom(roomScreen);
+  lockCollabPageScroll(roomScreen);
+  if (roomScreen && !roomScreen.classList.contains('hidden')) {
+    setCollabRoomScrollLock(true);
+  }
   initUiTooltips(roomScreen);
+
+  const uiPrefs = new UiPrefs();
+  const collabWorkspaceEl = document.getElementById('collabWorkspace');
+  uiPrefs.applyToWorkspace(collabWorkspaceEl);
 
   const canvasViewport = new CanvasViewport({
     stage,
@@ -112,6 +122,8 @@
     root: document.getElementById('collabWorkspace'),
     rightDock: document.getElementById('dockRight'),
     splitter: document.getElementById('dockSplitter'),
+    gutterLeft: document.getElementById('dockGutterLeft'),
+    gutterRight: document.getElementById('dockGutterRight'),
     rightTop: document.getElementById('dockRightTop'),
     rightBottom: document.getElementById('dockRightBottom')
   });
@@ -154,6 +166,11 @@
     }
   });
 
+  uiPrefs.onChange(() => {
+    uiPrefs.applyToWorkspace(collabWorkspaceEl);
+    toolRail.repositionOpenFlyout();
+  });
+
   const colorPicker = new ColorPicker(document.getElementById('colorPickerMount'), {
     initialColor: colorPair.foreground,
     onChange: color => {
@@ -180,10 +197,16 @@
   const layerPanel = new LayerPanel(document.getElementById('layerPanelPane'), {
     onSwitch: layerId => boardController && boardController.switchLayer(layerId),
     onCreate: () => boardController && boardController.createLayer(),
+    onCreateGroup: () => boardController && boardController.createLayerGroup(),
+    onDuplicate: layerId => boardController && boardController.duplicateLayer(layerId),
     onDelete: layerId => boardController && boardController.deleteLayer(layerId),
     onRename: (id, name) => boardController && boardController.renameLayer(id, name),
     onReorder: order => boardController && boardController.reorderLayers(order),
-    onUpdate: (id, patch) => boardController && boardController.updateLayer(id, patch)
+    onUpdate: (id, patch) => boardController && boardController.updateLayer(id, patch),
+    getBoardState: () => (boardController ? {
+      drawingBoard: boardController.drawingBoard,
+      strokes: boardController.strokes
+    } : null)
   });
 
   workspaceLayout.registry.register({ id: 'colorPicker', title: '调色', slot: 'rightTop', mountNode: document.getElementById('colorPickerMount') });
@@ -254,6 +277,7 @@
       board_removed: data => boardController.handleBoardRemoved(data),
       board_renamed: data => boardController.handleBoardRenamed(data),
       layer_added: data => boardController.handleLayerAdded(data),
+      layer_duplicated: data => boardController.handleLayerDuplicated(data),
       layer_removed: data => boardController.handleLayerRemoved(data),
       layer_renamed: data => boardController.handleLayerRenamed(data),
       layer_reordered: data => boardController.handleLayerReordered(data),
@@ -348,6 +372,7 @@
     getDrawingBoard: () => (boardController ? boardController.drawingBoard : null),
     getBoardController: () => boardController,
     onlinePrefs,
+    uiPrefs,
     session,
     getNickname: () => nickname,
     onOpen: () => {

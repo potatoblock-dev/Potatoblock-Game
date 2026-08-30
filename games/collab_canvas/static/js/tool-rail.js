@@ -1,9 +1,7 @@
 (function (global) {
   'use strict';
 
-  const LONG_PRESS_MS = 400;
-
-  /** 左侧竖向工具栏，支持 flyout 工具组。 */
+  /** 左侧竖向工具栏；同类变体通过底部小三角展开（Aseprite 式横条）。 */
   class ToolRail {
     constructor(mount, options) {
       const settings = options || {};
@@ -11,9 +9,10 @@
       this.onChange = settings.onChange || (() => {});
       this.variantStore = settings.variantStore || new ToolVariantStore();
       this.currentTool = ToolRegistry.resolveTool(settings.initialTool || 'brush', this.variantStore);
-      this._openFlyout = null;
-      this._longPressTimer = null;
-      this._touchFine = window.matchMedia('(pointer: fine)').matches;
+      this._openGroupId = null;
+      this._openFlyoutWrap = null;
+      this._openFlyoutEl = null;
+      this._flyoutReposition = null;
       this._onDocPointer = this._onDocPointer.bind(this);
       this._onDocKey = this._onDocKey.bind(this);
       document.addEventListener('pointerdown', this._onDocPointer, true);
@@ -49,6 +48,7 @@
 
     _render() {
       if (!this.mount) return;
+      this._closeFlyout();
       this.mount.innerHTML = '';
       ToolRegistry.getGroups().forEach(group => {
         const activeId = this._groupActiveTool(group);
@@ -71,7 +71,7 @@
       btn.dataset.tool = toolId;
       btn.setAttribute('data-tooltip', meta.label);
       btn.setAttribute('aria-label', meta.label);
-      btn.appendChild(MaterialIcons.createIcon(meta.icon, 'tool-rail-icon'));
+      btn.appendChild(MaterialIcons.createToolIcon(meta, 'tool-rail-icon'));
       btn.addEventListener('click', () => this.setTool(toolId));
       return btn;
     }
@@ -82,6 +82,9 @@
       wrap.className = 'tool-rail-group';
       wrap.dataset.group = group.id;
 
+      const cell = document.createElement('div');
+      cell.className = 'tool-rail-group-cell';
+
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'tool-rail-btn tool-rail-group-main' + (isActive ? ' is-active' : '');
@@ -89,54 +92,42 @@
       btn.dataset.group = group.id;
       btn.setAttribute('data-tooltip', meta.label);
       btn.setAttribute('aria-label', meta.label);
-      btn.appendChild(MaterialIcons.createIcon(meta.icon, 'tool-rail-icon'));
+      btn.appendChild(MaterialIcons.createToolIcon(meta, 'tool-rail-icon'));
+      btn.addEventListener('click', () => this.setTool(activeId));
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'tool-rail-flyout-toggle';
+      toggle.setAttribute('aria-label', '展开同类工具');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('data-tooltip', '展开同类工具');
       const caret = document.createElement('span');
       caret.className = 'tool-rail-flyout-caret material-symbols-outlined';
       caret.setAttribute('aria-hidden', 'true');
       caret.textContent = 'arrow_drop_down';
-      btn.appendChild(caret);
-
-      btn.addEventListener('click', () => this.setTool(activeId));
-      if (this._touchFine) {
-        btn.addEventListener('mouseenter', () => this._openGroupFlyout(group, wrap));
-        btn.addEventListener('mouseleave', () => this._scheduleCloseFlyout());
-        wrap.addEventListener('mouseenter', () => this._cancelCloseFlyout());
-        wrap.addEventListener('mouseleave', () => this._scheduleCloseFlyout());
-      }
-      btn.addEventListener('pointerdown', event => {
-        if (this._touchFine || event.pointerType === 'mouse') return;
-        this._longPressTimer = window.setTimeout(() => {
-          this._longPressTimer = null;
-          this._openGroupFlyout(group, wrap);
-        }, LONG_PRESS_MS);
+      toggle.appendChild(caret);
+      toggle.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        this._toggleGroupFlyout(group, wrap);
       });
-      btn.addEventListener('pointerup', () => this._clearLongPress());
-      btn.addEventListener('pointercancel', () => this._clearLongPress());
 
-      wrap.appendChild(btn);
+      cell.appendChild(btn);
+      cell.appendChild(toggle);
+      wrap.appendChild(cell);
       return wrap;
     }
 
-    _clearLongPress() {
-      if (this._longPressTimer) {
-        clearTimeout(this._longPressTimer);
-        this._longPressTimer = null;
+    /** 点击小三角：展开/收起横向变体条。 */
+    _toggleGroupFlyout(group, wrap) {
+      if (this._openGroupId === group.id && this._openFlyoutWrap === wrap) {
+        this._closeFlyout();
+        return;
       }
-    }
-
-    _scheduleCloseFlyout() {
-      this._closeTimer = window.setTimeout(() => this._closeFlyout(), 120);
-    }
-
-    _cancelCloseFlyout() {
-      if (this._closeTimer) {
-        clearTimeout(this._closeTimer);
-        this._closeTimer = null;
-      }
+      this._openGroupFlyout(group, wrap);
     }
 
     _openGroupFlyout(group, wrap) {
-      this._cancelCloseFlyout();
       this._closeFlyout();
       const flyout = document.createElement('div');
       flyout.className = 'tool-rail-flyout';
@@ -149,33 +140,72 @@
         item.dataset.tool = variantId;
         item.setAttribute('role', 'menuitem');
         item.setAttribute('aria-label', meta.label);
-        item.appendChild(MaterialIcons.createIcon(meta.icon, 'tool-rail-flyout-icon'));
-        const label = document.createElement('span');
-        label.className = 'tool-rail-flyout-label';
-        label.textContent = meta.label;
-        item.appendChild(label);
+        item.setAttribute('data-tooltip', meta.label);
+        item.appendChild(MaterialIcons.createToolIcon(meta, 'tool-rail-flyout-icon'));
         item.addEventListener('click', event => {
           event.stopPropagation();
           this.setTool(variantId);
-          this._closeFlyout();
         });
         flyout.appendChild(item);
       });
-      wrap.appendChild(flyout);
-      this._openFlyout = flyout;
+      document.body.appendChild(flyout);
+      this._positionFlyout(flyout, wrap);
+      wrap.classList.add('is-flyout-open');
+      const toggle = wrap.querySelector('.tool-rail-flyout-toggle');
+      if (toggle) toggle.setAttribute('aria-expanded', 'true');
+      this._openGroupId = group.id;
+      this._openFlyoutWrap = wrap;
+      this._openFlyoutEl = flyout;
+      this._flyoutReposition = () => this._positionFlyout(flyout, wrap);
+      window.addEventListener('resize', this._flyoutReposition);
+      window.addEventListener('scroll', this._flyoutReposition, true);
+    }
+
+    /** 自工具栏向外侧固定定位 flyout（避免 overflow 裁切）。 */
+    _positionFlyout(flyout, wrap) {
+      if (!flyout || !wrap) return;
+      const rect = wrap.getBoundingClientRect();
+      flyout.style.position = 'fixed';
+      const swapped = document.getElementById('collabWorkspace')?.classList.contains('is-sides-swapped');
+      if (swapped) {
+        flyout.style.left = Math.round(rect.left - flyout.offsetWidth - 2) + 'px';
+      } else {
+        flyout.style.left = Math.round(rect.right + 2) + 'px';
+      }
+      flyout.style.top = Math.round(rect.top + (rect.height - flyout.offsetHeight) / 2) + 'px';
+      flyout.style.zIndex = '2000';
+    }
+
+    /** 左右栏对调后重算已打开 flyout 的位置。 */
+    repositionOpenFlyout() {
+      if (this._openFlyoutEl && this._openFlyoutWrap) {
+        this._positionFlyout(this._openFlyoutEl, this._openFlyoutWrap);
+      }
     }
 
     _closeFlyout() {
-      if (this._openFlyout && this._openFlyout.parentNode) {
-        this._openFlyout.parentNode.removeChild(this._openFlyout);
+      if (this._flyoutReposition) {
+        window.removeEventListener('resize', this._flyoutReposition);
+        window.removeEventListener('scroll', this._flyoutReposition, true);
+        this._flyoutReposition = null;
       }
-      this._openFlyout = null;
+      if (this._openFlyoutWrap) {
+        this._openFlyoutWrap.classList.remove('is-flyout-open');
+        const toggle = this._openFlyoutWrap.querySelector('.tool-rail-flyout-toggle');
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+      }
+      if (this._openFlyoutEl && this._openFlyoutEl.parentNode) {
+        this._openFlyoutEl.parentNode.removeChild(this._openFlyoutEl);
+      }
+      this._openGroupId = null;
+      this._openFlyoutWrap = null;
+      this._openFlyoutEl = null;
     }
 
     _onDocPointer(event) {
-      if (!this._openFlyout) return;
-      const group = event.target.closest('.tool-rail-group');
-      if (group && group.contains(this._openFlyout)) return;
+      if (!this._openFlyoutEl) return;
+      if (event.target.closest('.tool-rail-flyout')) return;
+      if (this._openFlyoutWrap && this._openFlyoutWrap.contains(event.target)) return;
       this._closeFlyout();
     }
 

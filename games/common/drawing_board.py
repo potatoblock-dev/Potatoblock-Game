@@ -1,5 +1,6 @@
 """Reusable drawing-board protocol validation and stroke history helpers."""
 
+import copy
 import math
 import re
 import uuid
@@ -9,6 +10,9 @@ MAX_STROKES = 1000
 MAX_SEGMENTS_PER_STROKE = 5000
 MAX_LAYERS_PER_BOARD = 20
 DEFAULT_LAYER_ID = "l_default"
+LAYER_KIND_PAINT = "paint"
+LAYER_KIND_GROUP = "group"
+VALID_LAYER_KINDS = {LAYER_KIND_PAINT, LAYER_KIND_GROUP}
 VALID_TOOLS = {"brush", "eraser", "fill", "background", "line", "rect", "ellipse", "gradient"}
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 VECTOR_CANVAS_WIDTH = 960
@@ -144,6 +148,8 @@ def default_layers() -> List[Dict[str, object]]:
         {
             "layer_id": DEFAULT_LAYER_ID,
             "name": "图层 1",
+            "kind": LAYER_KIND_PAINT,
+            "parent_id": None,
             "visible": True,
             "opacity": 255,
             "locked": False,
@@ -152,10 +158,42 @@ def default_layers() -> List[Dict[str, object]]:
     ]
 
 
+def normalize_layer_kind(value: object) -> str:
+    """规范化图层类型为 paint 或 group。"""
+    kind = str(value or LAYER_KIND_PAINT)
+    return kind if kind in VALID_LAYER_KINDS else LAYER_KIND_PAINT
+
+
+def is_group_layer(layer: Optional[Dict]) -> bool:
+    """是否为图层组（不含笔迹容器）。"""
+    return bool(layer) and normalize_layer_kind(layer.get("kind")) == LAYER_KIND_GROUP
+
+
+def is_paint_layer(layer: Optional[Dict]) -> bool:
+    """是否为可绘制的绘画图层。"""
+    return bool(layer) and not is_group_layer(layer)
+
+
+def layer_parent_id(layer: Optional[Dict]) -> Optional[str]:
+    """读取图层 parent_id；空串视为无父组。"""
+    if not layer:
+        return None
+    raw = layer.get("parent_id")
+    if raw is None or raw == "":
+        return None
+    return str(raw)
+
+
 def migrate_board_layers(board: Dict) -> None:
     """旧画板补全 layers 与 stroke.layer_id。"""
     if "layers" not in board or not board["layers"]:
         board["layers"] = default_layers()
+    for layer in board["layers"]:
+        layer["kind"] = normalize_layer_kind(layer.get("kind"))
+        if "parent_id" not in layer:
+            layer["parent_id"] = None
+        elif layer["parent_id"] == "":
+            layer["parent_id"] = None
     for stroke in board.get("strokes") or []:
         if "layer_id" not in stroke:
             stroke["layer_id"] = DEFAULT_LAYER_ID
@@ -163,17 +201,95 @@ def migrate_board_layers(board: Dict) -> None:
 
 def serialize_layers(layers: List[Dict]) -> List[Dict[str, object]]:
     """返回图层元数据的 wire 格式。"""
-    return [
-        {
-            "layer_id": layer["layer_id"],
-            "name": layer["name"],
-            "visible": bool(layer.get("visible", True)),
-            "opacity": max(0, min(255, int(layer.get("opacity", 255)))),
-            "locked": bool(layer.get("locked", False)),
-            "order": int(layer.get("order", index)),
-        }
-        for index, layer in enumerate(layers or [])
-    ]
+    result: List[Dict[str, object]] = []
+    for index, layer in enumerate(layers or []):
+        parent_id = layer_parent_id(layer)
+        result.append(
+            {
+                "layer_id": layer["layer_id"],
+                "name": layer["name"],
+                "kind": normalize_layer_kind(layer.get("kind")),
+                "parent_id": parent_id or "",
+                "visible": bool(layer.get("visible", True)),
+                "opacity": max(0, min(255, int(layer.get("opacity", 255)))),
+                "locked": bool(layer.get("locked", False)),
+                "order": int(layer.get("order", index)),
+            }
+        )
+    return result
+
+
+def next_layer_name(board: Dict, kind: str) -> str:
+    """按类型生成默认图层/组名称。"""
+    migrate_board_layers(board)
+    if normalize_layer_kind(kind) == LAYER_KIND_GROUP:
+        count = sum(1 for layer in board["layers"] if is_group_layer(layer))
+        return f"组 {count + 1}"
+    count = sum(1 for layer in board["layers"] if is_paint_layer(layer))
+    return f"图层 {count + 1}"
+
+
+def validate_layer_parent(board: Dict, parent_id: Optional[str]) -> Optional[str]:
+    """校验 parent_id 必须指向存在的图层组。"""
+    if not parent_id:
+        return None
+    parent = get_layer(board, str(parent_id))
+    if not parent or not is_group_layer(parent):
+        raise ValueError("父图层组不存在")
+    return str(parent_id)
+
+
+def create_board_layer(
+    board: Dict,
+    *,
+    name: Optional[str] = None,
+    kind: str = LAYER_KIND_PAINT,
+    parent_id: Optional[str] = None,
+) -> Dict:
+    """新建绘画图层或图层组并追加到 board.layers。"""
+    migrate_board_layers(board)
+    layer_kind = normalize_layer_kind(kind)
+    parent = validate_layer_parent(board, parent_id)
+    new_id = "l_" + uuid.uuid4().hex[:10]
+    max_order = max(int(layer.get("order", 0)) for layer in board["layers"])
+    layer_name = str(name or next_layer_name(board, layer_kind)).strip()[:40] or next_layer_name(board, layer_kind)
+    layer = {
+        "layer_id": new_id,
+        "name": layer_name,
+        "kind": layer_kind,
+        "parent_id": parent,
+        "visible": True,
+        "opacity": 255,
+        "locked": False,
+        "order": max_order + 1,
+    }
+    board["layers"].append(layer)
+    return layer
+
+
+def group_has_children(board: Dict, group_id: str) -> bool:
+    """图层组是否仍有子图层。"""
+    for layer in board.get("layers") or []:
+        if layer_parent_id(layer) == group_id:
+            return True
+    return False
+
+
+def reparent_group_children(board: Dict, group_id: str, new_parent_id: Optional[str]) -> None:
+    """删除组前将其子图层移到新父级（或根）。"""
+    for layer in board.get("layers") or []:
+        if layer_parent_id(layer) == group_id:
+            layer["parent_id"] = new_parent_id
+
+
+def top_paint_layer_id(board: Dict) -> str:
+    """返回 order 最高的可绘制图层 id。"""
+    migrate_board_layers(board)
+    paint_layers = [layer for layer in board.get("layers") or [] if is_paint_layer(layer)]
+    if not paint_layers:
+        return DEFAULT_LAYER_ID
+    paint_layers.sort(key=lambda item: int(item.get("order", 0)))
+    return str(paint_layers[-1]["layer_id"])
 
 
 def get_layer(board: Dict, layer_id: str) -> Optional[Dict]:
@@ -202,6 +318,48 @@ def clear_layer_strokes(board: Dict, layer_id: str) -> None:
         if stroke.get("layer_id", DEFAULT_LAYER_ID) != layer_id:
             kept.append(stroke)
     board["strokes"] = kept
+
+
+def duplicate_board_layer(board: Dict, source_layer_id: str) -> Tuple[Optional[Dict], List[Dict]]:
+    """复制绘画图层元数据与该层全部 active strokes 到新图层。"""
+    migrate_board_layers(board)
+    src = get_layer(board, source_layer_id)
+    if not src or not is_paint_layer(src):
+        return None, []
+    new_id = "l_" + uuid.uuid4().hex[:10]
+    max_order = max(int(layer.get("order", 0)) for layer in board["layers"])
+    base_name = str(src.get("name") or "图层").strip()[:36]
+    name = f"{base_name} 副本"[:40]
+    layer = {
+        "layer_id": new_id,
+        "name": name,
+        "kind": LAYER_KIND_PAINT,
+        "parent_id": layer_parent_id(src),
+        "visible": bool(src.get("visible", True)),
+        "opacity": max(0, min(255, int(src.get("opacity", 255)))),
+        "locked": bool(src.get("locked", False)),
+        "order": max_order + 1,
+    }
+    board["layers"].append(layer)
+    cloned: List[Dict] = []
+    strokes = board.setdefault("strokes", [])
+    for stroke in strokes:
+        if stroke.get("layer_id", DEFAULT_LAYER_ID) != source_layer_id:
+            continue
+        if not stroke.get("active", True):
+            continue
+        new_stroke = {
+            "stroke_id": str(uuid.uuid4())[:100],
+            "owner_id": stroke["owner_id"],
+            "layer_id": new_id,
+            "segments": [copy.deepcopy(segment) for segment in stroke.get("segments") or []],
+            "active": True,
+        }
+        while len(strokes) >= MAX_STROKES:
+            strokes.pop(0)
+        strokes.append(new_stroke)
+        cloned.append(new_stroke)
+    return layer, cloned
 
 
 def serialize_strokes(strokes: List[Dict]) -> List[Dict]:

@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.error_codes import create_error_code
 from app.games.collab_canvas.protocol import (
+    BOARD_CREATE_COOLDOWN_SEC,
     DEFAULT_BOARD_ID,
     DEFAULT_LAYER_ID,
     DISCONNECT_GRACE_SECONDS,
@@ -26,15 +27,22 @@ from app.games.common.drawing_board import (
     append_stroke_segment,
     append_stroke_segments,
     clear_layer_strokes,
+    create_board_layer,
     default_layers,
     default_vector_canvas,
+    duplicate_board_layer,
     get_layer,
+    is_group_layer,
+    is_paint_layer,
     layer_has_strokes,
+    layer_parent_id,
     migrate_board_layers,
     redo_player_stroke,
+    reparent_group_children,
     serialize_canvas,
     serialize_layers,
     serialize_strokes,
+    top_paint_layer_id,
     undo_player_stroke,
 )
 from app.games.common.lobby import (
@@ -223,12 +231,23 @@ def build_drawing_sync(board: Dict, board_id: str) -> Dict[str, object]:
 
 
 def resolve_layer_id(board: Dict, pdata: Dict, data: Dict) -> str:
-    """解析本次操作的目标图层 id。"""
+    """解析本次操作的目标图层 id（可为组）。"""
     ensure_board(board)
     layer_id = str(data.get("layer_id") or pdata.get("active_layer_id") or top_layer_id(board))
     if get_layer(board, layer_id):
         return layer_id
     return top_layer_id(board)
+
+
+def resolve_draw_layer_id(board: Dict, pdata: Dict, data: Dict) -> str:
+    """解析绘制类操作的目标绘画图层 id。"""
+    layer_id = resolve_layer_id(board, pdata, data)
+    layer = get_layer(board, layer_id)
+    if layer and is_group_layer(layer):
+        return top_paint_layer_id(board)
+    return layer_id
+
+
 def build_room_state(room: Dict, player_id: str, *, include_strokes: bool = True) -> Dict:
     """构造进房/重连时的全量房间状态。"""
     pdata = room["players"][player_id]
@@ -252,6 +271,7 @@ def build_room_state(room: Dict, player_id: str, *, include_strokes: bool = True
         "active_layer_id": active_layer,
         "layers": serialize_layers(board.get("layers") or []),
         "canvas": serialize_canvas(board.get("canvas") or default_vector_canvas()),
+        "last_board_create_at": float(pdata.get("last_board_create_at") or 0),
     }
     if include_strokes:
         state["strokes"] = serialize_strokes(board.get("strokes") or [])
@@ -634,6 +654,7 @@ async def collab_websocket(websocket: WebSocket):
                     "label_color": "",
                     "can_draw": True,
                     "can_save": True,
+                    "last_board_create_at": 0,
                 }
                 player_rooms[player_id] = room_id
                 if room.get("owner_id") is None:
@@ -666,10 +687,23 @@ async def collab_websocket(websocket: WebSocket):
                 if len(room.get("board_order", [])) >= MAX_BOARDS_PER_ROOM:
                     await send_error(websocket, "画板数量已达上限")
                     continue
+                is_owner = room.get("owner_id") == player_id
+                if not is_owner:
+                    last_at = float(pdata.get("last_board_create_at") or 0)
+                    elapsed = time.time() - last_at
+                    if last_at > 0 and elapsed < BOARD_CREATE_COOLDOWN_SEC:
+                        remain = int(BOARD_CREATE_COOLDOWN_SEC - elapsed + 0.999)
+                        await send_error(
+                            websocket,
+                            f"创建画板冷却中，请 {remain} 秒后再试",
+                        )
+                        continue
                 title = str(data.get("title") or f"画板 {len(room['board_order']) + 1}")[:40]
                 board = create_board(title, created_by=player_id)
                 room["boards"][board["board_id"]] = board
                 room["board_order"].append(board["board_id"])
+                if not is_owner:
+                    pdata["last_board_create_at"] = time.time()
                 payload = {
                     "type": "board_added",
                     "board_id": board["board_id"],
@@ -698,9 +732,6 @@ async def collab_websocket(websocket: WebSocket):
                 if not board:
                     await send_error(websocket, "画板不存在")
                     continue
-                if board.get("created_by") != player_id and room.get("owner_id") != player_id:
-                    await send_error(websocket, "只有创建者或房主可以重命名")
-                    continue
                 board["title"] = str(data.get("title") or board["title"])[:40]
                 await broadcast(
                     room_id,
@@ -717,8 +748,8 @@ async def collab_websocket(websocket: WebSocket):
                 if not board:
                     await send_error(websocket, "画板不存在")
                     continue
-                if board.get("created_by") != player_id:
-                    await send_error(websocket, "只有创建者可以删除画板")
+                if room.get("owner_id") != player_id:
+                    await send_error(websocket, "只有房主可以删除画板")
                     continue
                 if board_has_drawn_strokes(board):
                     await send_error(websocket, "画板上还有内容，请先清空")
@@ -757,28 +788,64 @@ async def collab_websocket(websocket: WebSocket):
                 board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
                 board = get_board(room, board_id)
                 if not board:
+                    await send_error(websocket, "画板不存在")
                     continue
                 ensure_board(board)
                 if len(board["layers"]) >= MAX_LAYERS_PER_BOARD:
                     await send_error(websocket, "图层数量已达上限")
                     continue
-                new_id = "l_" + uuid.uuid4().hex[:10]
-                max_order = max(int(layer.get("order", 0)) for layer in board["layers"])
-                name = str(data.get("name") or f"图层 {len(board['layers']) + 1}")[:40]
-                layer = {
-                    "layer_id": new_id,
-                    "name": name,
-                    "visible": True,
-                    "opacity": 255,
-                    "locked": False,
-                    "order": max_order + 1,
-                }
-                board["layers"].append(layer)
-                pdata["active_layer_id"] = new_id
+                parent_raw = str(data.get("parent_id") or "").strip()
+                parent_id = parent_raw or None
+                try:
+                    layer = create_board_layer(
+                        board,
+                        name=str(data.get("name") or "").strip() or None,
+                        kind=str(data.get("kind") or "paint"),
+                        parent_id=parent_id,
+                    )
+                except ValueError as exc:
+                    await send_error(websocket, str(exc))
+                    continue
+                pdata["active_layer_id"] = layer["layer_id"]
                 payload = {
                     "type": "layer_added",
                     "board_id": board_id,
                     "layer": serialize_layers([layer])[0],
+                    "created_by": player_id,
+                }
+                await send_json(websocket, payload)
+                await broadcast_to_board(room_id, board_id, payload, exclude_id=player_id)
+                continue
+
+            if msg_type == "layer_duplicate":
+                board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
+                board = get_board(room, board_id)
+                if not board:
+                    continue
+                ensure_board(board)
+                if len(board["layers"]) >= MAX_LAYERS_PER_BOARD:
+                    await send_error(websocket, "图层数量已达上限")
+                    continue
+                source_layer_id = str(
+                    data.get("source_layer_id") or pdata.get("active_layer_id") or DEFAULT_LAYER_ID
+                )
+                if not get_layer(board, source_layer_id):
+                    await send_error(websocket, "图层不存在")
+                    continue
+                if is_group_layer(get_layer(board, source_layer_id)):
+                    await send_error(websocket, "不能复制图层组")
+                    continue
+                layer, cloned_strokes = duplicate_board_layer(board, source_layer_id)
+                if not layer:
+                    await send_error(websocket, "无法复制图层")
+                    continue
+                pdata["active_layer_id"] = layer["layer_id"]
+                payload = {
+                    "type": "layer_duplicated",
+                    "board_id": board_id,
+                    "source_layer_id": source_layer_id,
+                    "layer": serialize_layers([layer])[0],
+                    "strokes": serialize_strokes(cloned_strokes),
                     "created_by": player_id,
                 }
                 await broadcast_to_board(room_id, board_id, payload)
@@ -794,15 +861,31 @@ async def collab_websocket(websocket: WebSocket):
                 if len(board["layers"]) <= 1:
                     await send_error(websocket, "至少保留一个图层")
                     continue
-                if layer_id == DEFAULT_LAYER_ID and len(board["layers"]) == 1:
-                    await send_error(websocket, "默认图层不能删除")
-                    continue
                 if not get_layer(board, layer_id):
                     await send_error(websocket, "图层不存在")
                     continue
-                if layer_has_strokes(board, layer_id):
-                    await send_error(websocket, "图层上还有内容，请先清空")
-                    continue
+                target = get_layer(board, layer_id)
+                assert target is not None
+                if is_group_layer(target):
+                    blocked = False
+                    for child in board["layers"]:
+                        if layer_parent_id(child) != layer_id:
+                            continue
+                        if layer_has_strokes(board, str(child["layer_id"])):
+                            await send_error(websocket, "图层组内图层须先清空")
+                            blocked = True
+                            break
+                    if blocked:
+                        continue
+                    reparent_group_children(board, layer_id, layer_parent_id(target))
+                else:
+                    paint_count = sum(1 for item in board["layers"] if is_paint_layer(item))
+                    if paint_count <= 1:
+                        await send_error(websocket, "至少保留一个绘画图层")
+                        continue
+                    if layer_has_strokes(board, layer_id):
+                        await send_error(websocket, "图层上还有内容，请先清空")
+                        continue
                 board["layers"] = [layer for layer in board["layers"] if layer["layer_id"] != layer_id]
                 if pdata.get("active_layer_id") == layer_id:
                     pdata["active_layer_id"] = top_layer_id(board)
@@ -966,7 +1049,7 @@ async def collab_websocket(websocket: WebSocket):
                 board = get_board(room, board_id)
                 if not board:
                     continue
-                layer_id = resolve_layer_id(board, pdata, data)
+                layer_id = resolve_draw_layer_id(board, pdata, data)
                 layer = get_layer(board, layer_id)
                 if layer and layer.get("locked"):
                     continue
@@ -1029,7 +1112,7 @@ async def collab_websocket(websocket: WebSocket):
                 board = get_board(room, board_id)
                 if not board:
                     continue
-                layer_id = resolve_layer_id(board, pdata, data)
+                layer_id = resolve_draw_layer_id(board, pdata, data)
                 stroke = (
                     undo_player_stroke(board["strokes"], board["redo"], player_id, layer_id)
                     if msg_type == "undo"
@@ -1057,7 +1140,7 @@ async def collab_websocket(websocket: WebSocket):
                 board = get_board(room, board_id)
                 if not board:
                     continue
-                layer_id = resolve_layer_id(board, pdata, data)
+                layer_id = resolve_draw_layer_id(board, pdata, data)
                 clear_layer_strokes(board, layer_id)
                 board["redo"] = {}
                 clear_msg = {"type": "clear", "board_id": board_id, "layer_id": layer_id}

@@ -351,13 +351,24 @@
       this._redrawFlat(this.strokes);
     }
 
-    /** 按图层顺序与透明度合成绘制。 */
+    /** 按图层顺序与透明度合成绘制；组不含笔迹，继承父组可见性。 */
     redrawLayers(layersMeta, strokes) {
       if (layersMeta) this.layersMeta = (layersMeta || []).slice();
       if (strokes) this.strokes = cloneStrokes(strokes);
       this.ensureBufferSize();
       this.applySmoothing();
       const sorted = this.layersMeta.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+      const layerById = new Map(sorted.map(layer => [String(layer.layer_id || 'l_default'), layer]));
+      const isVisible = layer => {
+        if (!layer || layer.visible === false) return false;
+        let parentId = layer.parent_id || '';
+        while (parentId) {
+          const parent = layerById.get(String(parentId));
+          if (!parent || parent.visible === false) return false;
+          parentId = parent.parent_id || '';
+        }
+        return true;
+      };
       let fillColor = this.defaultBackground;
       this.strokes.forEach(stroke => {
         if (stroke.active === false) return;
@@ -375,7 +386,8 @@
       this.backgroundColor = fillColor;
       this.canvas.style.backgroundColor = fillColor;
       sorted.forEach(layer => {
-        if (layer.visible === false) return;
+        if (layer.kind === 'group') return;
+        if (!isVisible(layer)) return;
         const opacity = clamp(Number(layer.opacity != null ? layer.opacity : 255), 0, 255) / 255;
         if (opacity <= 0) return;
         const layerId = String(layer.layer_id || 'l_default');

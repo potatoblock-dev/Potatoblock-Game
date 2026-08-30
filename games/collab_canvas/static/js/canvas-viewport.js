@@ -14,6 +14,7 @@
       this.stage = settings.stage;
       this.surface = settings.surface;
       this.badge = settings.badge;
+      this.onTransformChange = settings.onTransformChange || (() => {});
       this.scale = 1;
       this.panX = 0;
       this.panY = 0;
@@ -86,6 +87,7 @@
       if (!this.surface) return;
       this.surface.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
       this.surface.style.transformOrigin = '0 0';
+      this.onTransformChange();
     }
 
     _flashBadge() {
@@ -195,11 +197,67 @@
     }, { passive: false });
 
     document.addEventListener('wheel', event => {
-      if (!root.contains(event.target)) return;
+      if (!root.contains(event.target) && !isRoomActive(root)) return;
       if (event.ctrlKey || event.metaKey) event.preventDefault();
     }, { passive: false, capture: true });
   }
 
+  function isRoomActive(roomRoot) {
+    const root = roomRoot || document.getElementById('roomScreen');
+    return Boolean(root && !root.classList.contains('hidden'));
+  }
+
+  /** 查找可滚动的祖先（保留面板内滚动）。 */
+  function findScrollableAncestor(node, stopAt) {
+    let el = node instanceof Element ? node : null;
+    const stop = stopAt || document.body;
+    while (el && el !== stop && el !== document.documentElement) {
+      if (el.scrollHeight > el.clientHeight + 1) {
+        const oy = getComputedStyle(el).overflowY;
+        if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return el;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  /** 该元素是否还能沿 deltaY 继续滚动。 */
+  function canScrollElement(el, deltaY) {
+    if (!el || !deltaY) return false;
+    if (deltaY < 0) return el.scrollTop > 0;
+    return el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+  }
+
+  /** 画板房间页锁定 document 滚动；可滚动面板内仍允许滚轮/触摸滚动。 */
+  function lockCollabPageScroll(roomRoot) {
+    const root = roomRoot || document.getElementById('roomScreen');
+    if (!root) return;
+
+    document.addEventListener('wheel', event => {
+      if (!isRoomActive(root)) return;
+      if (event.target.closest && event.target.closest('#canvasStage, .canvas-stage')) return;
+      const scrollable = findScrollableAncestor(event.target, document.body);
+      if (scrollable && canScrollElement(scrollable, event.deltaY)) return;
+      event.preventDefault();
+    }, { passive: false, capture: true });
+
+    document.addEventListener('touchmove', event => {
+      if (!isRoomActive(root)) return;
+      if (event.target.closest && event.target.closest('[data-scroll-lock-ignore]')) return;
+      const scrollable = findScrollableAncestor(event.target, document.body);
+      if (scrollable) return;
+      event.preventDefault();
+    }, { passive: false, capture: true });
+  }
+
+  /** 切换 html/body 溢出锁定（进入/离开画板房间）。 */
+  function setCollabRoomScrollLock(active) {
+    document.documentElement.classList.toggle('collab-scroll-lock', Boolean(active));
+    document.body.classList.toggle('collab-scroll-lock', Boolean(active));
+  }
+
   global.CanvasViewport = CanvasViewport;
   global.disableCollabBrowserZoom = disableBrowserZoom;
+  global.lockCollabPageScroll = lockCollabPageScroll;
+  global.setCollabRoomScrollLock = setCollabRoomScrollLock;
 })(window);

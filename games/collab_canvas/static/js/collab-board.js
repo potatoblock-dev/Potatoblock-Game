@@ -34,7 +34,7 @@
       this.adapter = new CollabBoardAdapter({
         send: payload => this.session.send(payload),
         getBoardId: () => this.activeBoardId,
-        getLayerId: () => this.activeLayerId
+        getLayerId: () => this.drawLayerId()
       });
 
       this.selfId = settings.selfId || '';
@@ -62,6 +62,8 @@
       this._spaceToolPrev = null;
       this._handPanning = false;
       this._handLast = null;
+      this._boardCreateCooldownUntil = 0;
+      this._pendingSelectionCopy = null;
 
       this.toolController = new ToolController();
       this.toolController.attachBoard(this);
@@ -71,6 +73,12 @@
         if (surface) this.canvasOverlay.attachToSurface(surface);
       }
       this.selectionManager = new SelectionManager(this, this.canvasOverlay);
+      this.selectionActionsBar = new SelectionActionsBar(this, this.selectionManager);
+      if (this.viewport) {
+        this.viewport.onTransformChange = () => {
+          if (this.selectionActionsBar) this.selectionActionsBar.sync();
+        };
+      }
       if (typeof registerCollabTools === 'function') {
         registerCollabTools(this.toolController, this);
       }
@@ -83,6 +91,13 @@
         getTool: () => this.currentTool,
         isVisible: () => !this.isDrawing || BRUSH_TOOLS.has(this.currentTool)
       });
+      this.brushSizeDockPreview = new BrushSizeDockPreview(
+        document.getElementById('brushSizePreview'),
+        {
+          getBrushSize: () => this.currentSize,
+          getTool: () => this.currentTool
+        }
+      );
 
       const stageSurface = this.stage && (
         this.stage.querySelector('.canvas-stage-surface') || document.getElementById('canvasStageSurface')
@@ -103,9 +118,10 @@
 
     /** 舞台尺寸变化时重新 fit，保证视口灰色 letterbox 正确。 */
     _bindStageResize() {
-      this._refitCanvas = () => {
+      this.    _refitCanvas = () => {
         if (this.stage) this.drawingBoard.fitToStage(this.stage);
-        this._refreshBrushSizePreview();
+        this._updateBrushSizeDockPreview();
+        if (this.selectionActionsBar) this.selectionActionsBar.sync();
       };
       window.addEventListener('resize', this._refitCanvas);
       if (this.stage && typeof ResizeObserver !== 'undefined') {
@@ -121,6 +137,9 @@
 
     _redraw() {
       this.drawingBoard.redraw(this.strokes, this.layersMeta);
+      if (this.layerPanel && this.layerPanel.refreshThumbnails) {
+        this.layerPanel.refreshThumbnails();
+      }
     }
 
     _activeLayerLocked() {
@@ -170,6 +189,9 @@
         case 'toolHand':
           this._setTool('hand');
           return;
+        case 'toolMove':
+          this._setTool('move');
+          return;
         case 'selectionDelete':
           if (this.selectionManager) this.selectionManager.deleteSelection();
           return;
@@ -215,13 +237,11 @@
           if (lockedLayer) this.updateLayer(lockedLayer.layer_id, { locked: !lockedLayer.locked });
           return;
         }
-        case 'layerRename': {
-          const renameLayer = this.layersMeta.find(l => l.layer_id === this.activeLayerId);
-          if (!renameLayer) return;
-          const next = prompt('重命名图层', renameLayer.name || '');
-          if (next != null && next.trim()) this.renameLayer(renameLayer.layer_id, next.trim());
+        case 'layerRename':
+          if (this.layerPanel && this.activeLayerId) {
+            this.layerPanel.startRename(this.activeLayerId);
+          }
           return;
-        }
         case 'boardNew':
           this.createBoard();
           return;
@@ -275,11 +295,13 @@
         this._applyToolCursor(resolved);
       }
       if (this.brushPreview && !BRUSH_TOOLS.has(resolved)) this.brushPreview.hide();
+      this._updateBrushSizeDockPreview();
       if (this.selectionManager && (String(resolved).startsWith('select') || resolved === 'magicWand')) {
         this.selectionManager.setMode(resolved);
-      } else if (this.selectionManager && prev !== resolved) {
+      } else if (this.selectionManager && prev !== resolved && resolved !== 'move') {
         this.selectionManager.clear();
       }
+      if (this.selectionActionsBar) this.selectionActionsBar.sync();
     }
 
     /** 返回当前工具应对应的 CSS 光标。 */
@@ -287,6 +309,7 @@
       const id = String(toolId || '');
       const map = {
         hand: 'grab',
+        move: 'move',
         eyedropper: 'crosshair',
         fillBucket: 'cell',
         fillGradient: 'crosshair',
@@ -343,23 +366,12 @@
       const next = clamp(this.currentSize + delta, BRUSH_MIN, BRUSH_MAX);
       this.currentSize = next;
       if (sizeInput) sizeInput.value = String(next);
-      if (this.brushPreview) {
-        this.brushPreview.showAtCenter();
-        clearTimeout(this._brushPreviewHideTimer);
-        this._brushPreviewHideTimer = setTimeout(() => this._hideBrushSizePreview(), 700);
-      }
+      this._updateBrushSizeDockPreview();
     }
 
-    /** 滑块拖动时在画布中心刷新笔刷空心圆。 */
-    _refreshBrushSizePreview() {
-      const sizeInput = document.getElementById('brushSize');
-      if (sizeInput && document.activeElement === sizeInput && this.brushPreview) {
-        this.brushPreview.showAtCenter({ pinned: true });
-      }
-    }
-
-    _hideBrushSizePreview() {
-      if (this.brushPreview) this.brushPreview.hide();
+    /** 刷新右栏粗细滑块旁的空心圆预览。 */
+    _updateBrushSizeDockPreview() {
+      if (this.brushSizeDockPreview) this.brushSizeDockPreview.update();
     }
 
     _zoomAtCenter(zoomIn) {
@@ -397,24 +409,50 @@
       this.switchBoard(order[next]);
     }
 
+    isHost() {
+      return Boolean(this.selfId && this.ownerId && this.selfId === this.ownerId);
+    }
+
+    /** 房客新建画板冷却剩余毫秒（房主无冷却）。 */
+    boardCreateCooldownRemaining() {
+      if (this.isHost()) return 0;
+      return Math.max(0, this._boardCreateCooldownUntil - Date.now());
+    }
+
+    /** 同步画板面板列表与联机上下文。 */
+    _syncBoardPanel() {
+      if (!this.boardPanel) return;
+      this.boardPanel.setRoomContext({
+        isOwner: () => this.isHost(),
+        getCreateCooldownMs: () => this.boardCreateCooldownRemaining()
+      });
+      this.boardPanel.setBoards(this.boardsMeta, this.boardOrder, this.activeBoardId);
+    }
+
     handleRoomState(data) {
       this.selfId = data.self_id || this.selfId;
       this.ownerId = data.owner_id || '';
       this._applySelfPermissions(data.players, data.self_id);
       this.activeBoardId = data.active_board_id || 'b_default';
       this.activeLayerId = data.active_layer_id || 'l_default';
-      this.layersMeta = data.layers || [{ layer_id: 'l_default', name: '图层 1', visible: true, opacity: 255, locked: false, order: 0 }];
+      this.layersMeta = (data.layers || [{ layer_id: 'l_default', name: '图层 1', kind: 'paint', parent_id: '', visible: true, opacity: 255, locked: false, order: 0 }])
+        .map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
       this.boardsMeta = data.boards || [];
       this.boardOrder = data.board_order || this.boardsMeta.map(b => b.board_id);
       this.strokes = DrawingBoard.cloneStrokes(data.strokes || []);
       this._refitCanvas();
       this._redraw();
-      if (this.boardPanel) {
-        this.boardPanel.setBoards(this.boardsMeta, this.boardOrder, this.activeBoardId);
-      }
       if (this.layerPanel) {
         this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
       }
+      if (!this.isHost() && data.last_board_create_at) {
+        const cooldownMs = global.BOARD_CREATE_COOLDOWN_MS || 60000;
+        const until = Math.floor(Number(data.last_board_create_at) * 1000) + cooldownMs;
+        if (until > Date.now()) {
+          this._boardCreateCooldownUntil = until;
+        }
+      }
+      this._syncBoardPanel();
       this.onRoomChange(data);
       this._updateMemberCount(data.players);
       this.setPlayersSnapshot(data.players);
@@ -459,6 +497,7 @@
       const clearBtn = document.getElementById('clearBtn');
       if (clearBtn) clearBtn.disabled = !this.canDraw;
       if (!this.canDraw && this.brushPreview) this.brushPreview.hide();
+      if (this.selectionActionsBar) this.selectionActionsBar.sync();
     }
 
     /** 供 RoomPanel 读取最新成员列表。 */
@@ -473,7 +512,7 @@
     handleDrawingSync(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
       if (data.layers) {
-        this.layersMeta = data.layers;
+        this.layersMeta = data.layers.map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
         const sorted = this.layersMeta.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
         if (sorted.length) this.activeLayerId = sorted[sorted.length - 1].layer_id;
       }
@@ -514,12 +553,62 @@
 
     handleLayerAdded(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
-      if (data.layer) this.layersMeta.push(data.layer);
+      if (data.layer) {
+        const layer = this._normalizeLayerMeta(Object.assign({}, data.layer));
+        if (!this.layersMeta.some(item => item.layer_id === layer.layer_id)) {
+          this.layersMeta.push(layer);
+        }
+      }
       this.layersMeta.sort((a, b) => (a.order || 0) - (b.order || 0));
-      if (data.created_by === this.selfId) {
+      if (data.created_by === this.selfId && data.layer) {
+        this.activeLayerId = data.layer.layer_id;
+        if (this._pendingSelectionCopy) {
+          this._applyPendingSelectionCopy(data.layer.layer_id);
+        }
+      }
+      if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
+      this._redraw();
+    }
+
+    /** 将 pending 选区复制像素写入新建图层。 */
+    _applyPendingSelectionCopy(layerId) {
+      const pending = this._pendingSelectionCopy;
+      if (!pending || !layerId) return;
+      const db = this.drawingBoard;
+      const bbox = pending.bbox;
+      const segment = {
+        tool: 'localRaster',
+        x: bbox.x / db.logicalWidth,
+        y: bbox.y / db.logicalHeight,
+        w: bbox.w / db.logicalWidth,
+        h: bbox.h / db.logicalHeight,
+        pixels: pending.pixels,
+        punch: false
+      };
+      const strokeId = crypto.randomUUID();
+      db.appendSegment(this.strokes, this.selfId, strokeId, segment, layerId);
+      this._pendingSelectionCopy = null;
+      this._redraw();
+      if (this.selectionActionsBar) this.selectionActionsBar.sync();
+    }
+
+    /** 图层副本：合并新 layer 与克隆 strokes 并刷新。 */
+    handleLayerDuplicated(data) {
+      if (data.board_id && data.board_id !== this.activeBoardId) return;
+      if (data.layer) {
+        const exists = this.layersMeta.some(l => l.layer_id === data.layer.layer_id);
+        if (!exists) this.layersMeta.push(data.layer);
+        this.layersMeta.sort((a, b) => (a.order || 0) - (b.order || 0));
+      }
+      (data.strokes || []).forEach(stroke => {
+        const copy = DrawingBoard.cloneStrokes([stroke])[0];
+        if (copy) this.strokes.push(copy);
+      });
+      if (data.created_by === this.selfId && data.layer) {
         this.activeLayerId = data.layer.layer_id;
       }
       if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
+      this._redraw();
     }
 
     handleLayerRemoved(data) {
@@ -544,7 +633,9 @@
 
     handleLayerReordered(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
-      if (data.layers) this.layersMeta = data.layers;
+      if (data.layers) {
+        this.layersMeta = data.layers.map(layer => this._normalizeLayerMeta(Object.assign({}, layer)));
+      }
       if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
       this._redraw();
     }
@@ -558,6 +649,7 @@
       if ('locked' in data) layer.locked = Boolean(data.locked);
       if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
       this._redraw();
+      if (this.selectionActionsBar) this.selectionActionsBar.sync();
     }
 
     switchLayer(layerId) {
@@ -567,8 +659,80 @@
       if (this.layerPanel) this.layerPanel.setActive(layerId);
     }
 
-    createLayer() {
-      this.session.send({ type: 'layer_create', board_id: this.activeBoardId });
+    /** 是否为图层组。 */
+    _isGroupLayer(layer) {
+      return Boolean(layer && layer.kind === 'group');
+    }
+
+    /** 规范化图层元数据（kind / parent_id）。 */
+    _normalizeLayerMeta(layer) {
+      if (!layer) return layer;
+      if (!layer.kind) layer.kind = 'paint';
+      if (layer.parent_id == null) layer.parent_id = '';
+      return layer;
+    }
+
+    /** 返回 order 最高的绘画图层 id。 */
+    _topPaintLayerId() {
+      const paints = this.layersMeta.filter(l => !this._isGroupLayer(l));
+      if (!paints.length) return 'l_default';
+      paints.sort((a, b) => (a.order || 0) - (b.order || 0));
+      return paints[paints.length - 1].layer_id;
+    }
+
+    /** 新建图层时默认 parent：选中组则入组，否则与当前层同级。 */
+    _resolveNewLayerParentId() {
+      const active = this.layersMeta.find(l => l.layer_id === this.activeLayerId);
+      if (!active) return '';
+      if (this._isGroupLayer(active)) return active.layer_id;
+      return active.parent_id || '';
+    }
+
+    /** 当前可绘制目标图层（选中组时落到组内顶层绘画层）。 */
+    drawLayerId() {
+      const active = this.layersMeta.find(l => l.layer_id === this.activeLayerId);
+      if (active && this._isGroupLayer(active)) {
+        const children = this.layersMeta
+          .filter(l => !this._isGroupLayer(l) && (l.parent_id || '') === active.layer_id)
+          .sort((a, b) => (a.order || 0) - (b.order || 0));
+        if (children.length) return children[children.length - 1].layer_id;
+        return this._topPaintLayerId();
+      }
+      return this.activeLayerId;
+    }
+
+    createLayer(options) {
+      const opts = options || {};
+      const payload = {
+        type: 'layer_create',
+        board_id: this.activeBoardId,
+        kind: opts.kind || 'paint'
+      };
+      const parentId = opts.parentId != null ? opts.parentId : this._resolveNewLayerParentId();
+      if (parentId) payload.parent_id = parentId;
+      if (opts.name) payload.name = opts.name;
+      if (!this.session.send(payload)) {
+        return false;
+      }
+      return true;
+    }
+
+    /** 新建空图层组。 */
+    createLayerGroup() {
+      return this.createLayer({ kind: 'group' });
+    }
+
+    /** 复制图层为副本（含该层 strokes，WS layer_duplicate）。 */
+    duplicateLayer(layerId) {
+      const sourceId = layerId || this.activeLayerId;
+      if (!sourceId) return;
+      const source = this.layersMeta.find(l => l.layer_id === sourceId);
+      if (source && this._isGroupLayer(source)) return;
+      this.session.send({
+        type: 'layer_duplicate',
+        board_id: this.activeBoardId,
+        source_layer_id: sourceId
+      });
     }
 
     deleteLayer(layerId) {
@@ -595,9 +759,11 @@
         canvas: data.canvas
       });
       this.boardOrder.push(data.board_id);
-      if (this.boardPanel) {
-        this.boardPanel.setBoards(this.boardsMeta, this.boardOrder, this.activeBoardId);
+      if (data.created_by === this.selfId && !this.isHost()) {
+        this._boardCreateCooldownUntil = Date.now() + (global.BOARD_CREATE_COOLDOWN_MS || 60000);
+        if (this.boardPanel) this.boardPanel.notifyBoardCreated(false);
       }
+      this._syncBoardPanel();
     }
 
     handleBoardRemoved(data) {
@@ -607,17 +773,13 @@
         this.activeBoardId = 'b_default';
         this.session.send({ type: 'board_switch', board_id: this.activeBoardId });
       }
-      if (this.boardPanel) {
-        this.boardPanel.setBoards(this.boardsMeta, this.boardOrder, this.activeBoardId);
-      }
+      this._syncBoardPanel();
     }
 
     handleBoardRenamed(data) {
       const board = this.boardsMeta.find(b => b.board_id === data.board_id);
       if (board) board.title = data.title;
-      if (this.boardPanel) {
-        this.boardPanel.setBoards(this.boardsMeta, this.boardOrder, this.activeBoardId);
-      }
+      this._syncBoardPanel();
     }
 
     switchBoard(boardId) {
@@ -632,6 +794,7 @@
     }
 
     createBoard() {
+      if (this.boardCreateCooldownRemaining() > 0) return;
       this.session.send({ type: 'board_create' });
     }
 
@@ -754,7 +917,7 @@
 
     _appendLocalSegment(strokeId, segment) {
       if (!this.canDraw && segment.tool !== 'localRaster') return;
-      this.drawingBoard.appendSegment(this.strokes, this.selfId, strokeId, segment, this.activeLayerId);
+      this.drawingBoard.appendSegment(this.strokes, this.selfId, strokeId, segment, this.drawLayerId());
       this.drawingBoard.drawSegment(segment);
       if (segment.tool !== 'localRaster') {
         this.adapter.sendSegment(strokeId, segment);
@@ -835,19 +998,12 @@
       }
       const sizeInput = document.getElementById('brushSize');
       if (sizeInput) {
-        const showCenterPreview = () => {
-          if (this.brushPreview) this.brushPreview.showAtCenter({ pinned: true });
-        };
-        const hideCenterPreview = () => this._hideBrushSizePreview();
-        sizeInput.addEventListener('pointerdown', showCenterPreview);
         sizeInput.addEventListener('input', () => {
           this.currentSize = clamp(Number(sizeInput.value) || 8, BRUSH_MIN, BRUSH_MAX);
-          showCenterPreview();
+          this._updateBrushSizeDockPreview();
         });
-        sizeInput.addEventListener('pointerup', hideCenterPreview);
-        sizeInput.addEventListener('change', hideCenterPreview);
-        sizeInput.addEventListener('blur', hideCenterPreview);
         this.currentSize = clamp(Number(sizeInput.value) || 8, BRUSH_MIN, BRUSH_MAX);
+        this._updateBrushSizeDockPreview();
       }
       const undoBtn = document.getElementById('undoBtn');
       const redoBtn = document.getElementById('redoBtn');

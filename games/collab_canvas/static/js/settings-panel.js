@@ -40,16 +40,19 @@
       this.fillToleranceOut = this.modal && this.modal.querySelector('#settingsFillToleranceOut');
       this.wandToleranceInput = this.modal && this.modal.querySelector('#settingsWandTolerance');
       this.wandToleranceOut = this.modal && this.modal.querySelector('#settingsWandToleranceOut');
+      this.swapSidebarsToggle = this.modal && this.modal.querySelector('#settingsSwapSidebars');
       this.getDrawingBoard = settings.getDrawingBoard || (() => null);
       this.getBoardController = settings.getBoardController || (() => null);
       this.onlinePrefs = settings.onlinePrefs || null;
+      this.uiPrefs = settings.uiPrefs || null;
       this.session = settings.session || null;
       this.getNickname = settings.getNickname || (() => '玩家');
       this.displayNameInput = this.modal && this.modal.querySelector('#settingsOnlineDisplayName');
       this.usePassportToggle = this.modal && this.modal.querySelector('#settingsOnlineUsePassportName');
-      this.labelColorInput = this.modal && this.modal.querySelector('#settingsOnlineLabelColor');
+      this.labelColorMount = this.modal && this.modal.querySelector('#settingsOnlineLabelColorMount');
       this.labelColorReset = this.modal && this.modal.querySelector('#settingsOnlineLabelReset');
       this.labelPreview = this.modal && this.modal.querySelector('#settingsOnlineLabelPreview');
+      this._labelColorSurface = null;
       this.shortcutList = this.modal && this.modal.querySelector('[data-shortcut-list]');
       this.shortcutStatus = this.modal && this.modal.querySelector('[data-shortcut-status]');
       this.shortcutResetBtn = this.modal && this.modal.querySelector('[data-shortcut-reset]');
@@ -65,6 +68,7 @@
       this._bindModal();
       this._bindTabs();
       this._bindGeneral();
+      this._bindUi();
       this._bindPeripheral();
       this._bindOnline();
       this._renderShortcuts();
@@ -91,6 +95,10 @@
     open() {
       if (!this.modal) return;
       this.onOpen();
+      if (this.swapSidebarsToggle && this.uiPrefs) {
+        this.swapSidebarsToggle.checked = this.uiPrefs.getSwapSidebars();
+        this.uiPrefs.applyToWorkspace();
+      }
       this.modal.classList.remove('hidden');
       this._switchTab(this._activeTab || 'general');
     }
@@ -235,11 +243,23 @@
       };
       const applyStored = () => {
         const stored = this.onlinePrefs.getLabelColor();
-        if (this.labelColorInput) {
-          this.labelColorInput.value = stored || '#3b82f6';
-        }
+        const color = stored || '#3b82f6';
+        if (this._labelColorSurface) this._labelColorSurface.setColor(color);
         syncNameControls();
       };
+      if (this.labelColorMount) {
+        this._labelColorSurface = new ColorPickerSurface(this.labelColorMount, {
+          mode: 'hsv',
+          color: this.onlinePrefs.getLabelColor() || '#3b82f6',
+          showRgbSliders: true,
+          onChange: hex => {
+            this.onlinePrefs.setLabelColor(hex);
+            syncPreview();
+            pushStyle();
+          },
+          onCommit: () => {}
+        });
+      }
       applyStored();
       if (this.usePassportToggle) {
         this.usePassportToggle.addEventListener('change', () => {
@@ -264,18 +284,21 @@
           pushStyle();
         });
       }
-      if (this.labelColorInput) {
-        this.labelColorInput.addEventListener('input', () => {
-          this.onlinePrefs.setLabelColor(this.labelColorInput.value);
-          syncPreview();
-          pushStyle();
-        });
-      }
       if (this.labelColorReset) {
         this.labelColorReset.addEventListener('click', () => {
           this.onlinePrefs.resetLabelColor();
           applyStored();
           pushStyle();
+        });
+      }
+    }
+
+    /** 绑定用户界面偏好（本机）。 */
+    _bindUi() {
+      if (this.swapSidebarsToggle && this.uiPrefs) {
+        this.swapSidebarsToggle.checked = this.uiPrefs.getSwapSidebars();
+        this.swapSidebarsToggle.addEventListener('change', () => {
+          this.uiPrefs.setSwapSidebars(this.swapSidebarsToggle.checked);
         });
       }
     }

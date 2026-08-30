@@ -11,9 +11,27 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
 
+html.collab-scroll-lock,
+html.collab-scroll-lock body {
+  overflow: hidden;
+  height: 100%;
+  overscroll-behavior: none;
+}
+html.collab-scroll-lock .collab-main {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+html.collab-scroll-lock .room-screen {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .hidden { display: none !important; }
 
 .collab-main { min-height: 100vh; }
+html.collab-scroll-lock .collab-main { min-height: 0; }
 
 /* —— 加入房间页（保留圆角卡片） —— */
 .join-screen {

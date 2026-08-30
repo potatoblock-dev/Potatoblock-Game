@@ -35,15 +35,20 @@
       tip.classList.add('hidden');
     }
 
-    /** 根据锚点元素位置放置浮字（左栏向右，其余向下）。 */
+    /** 根据锚点元素位置放置浮字（工具栏向外侧，其余向下）。 */
     function place(el) {
       const rect = el.getBoundingClientRect();
       tip.classList.remove('hidden');
       const tipRect = tip.getBoundingClientRect();
       let left;
       let top;
-      if (el.closest('#dockLeft')) {
+      const inToolDock = el.closest('#dockLeft') || el.closest('.tool-rail-flyout');
+      const swapped = document.getElementById('collabWorkspace')?.classList.contains('is-sides-swapped');
+      if (inToolDock && !swapped) {
         left = rect.right + 8;
+        top = rect.top + (rect.height - tipRect.height) / 2;
+      } else if (inToolDock && swapped) {
+        left = rect.left - tipRect.width - 8;
         top = rect.top + (rect.height - tipRect.height) / 2;
       } else {
         left = rect.left + (rect.width - tipRect.width) / 2;
@@ -69,12 +74,7 @@
     scope.addEventListener('mouseover', event => {
       const el = event.target.closest('[data-tooltip]');
       if (!el || !scope.contains(el)) return;
-      if (pendingEl === el || visibleEl === el) return;
-      hide();
-      pendingEl = el;
-      timer = setTimeout(() => {
-        if (pendingEl === el) show(el);
-      }, SHOW_DELAY_MS);
+      onTooltipOver(el);
     });
 
     scope.addEventListener('mouseout', event => {
@@ -84,6 +84,44 @@
       if (to && el.contains(to)) return;
       hide();
     });
+
+    /** 挂载在 body 的 flyout 变体条也在 roomScreen 外，需单独委托。 */
+    document.addEventListener('mouseover', event => {
+      const el = event.target.closest('.tool-rail-flyout [data-tooltip]');
+      if (!el) return;
+      onTooltipOver(el);
+    });
+
+    document.addEventListener('mouseout', event => {
+      const el = event.target.closest('.tool-rail-flyout [data-tooltip]');
+      if (!el) return;
+      const to = event.relatedTarget;
+      if (to && el.contains(to)) return;
+      hide();
+    });
+
+    document.addEventListener('mouseover', event => {
+      const el = event.target.closest('.selection-actions-bar [data-tooltip]');
+      if (!el) return;
+      onTooltipOver(el);
+    });
+
+    document.addEventListener('mouseout', event => {
+      const el = event.target.closest('.selection-actions-bar [data-tooltip]');
+      if (!el) return;
+      const to = event.relatedTarget;
+      if (to && el.contains(to)) return;
+      hide();
+    });
+
+    function onTooltipOver(el) {
+      if (pendingEl === el || visibleEl === el) return;
+      hide();
+      pendingEl = el;
+      timer = setTimeout(() => {
+        if (pendingEl === el) show(el);
+      }, SHOW_DELAY_MS);
+    }
 
     scope.addEventListener('mousedown', hide);
     scope.addEventListener('scroll', hide, true);

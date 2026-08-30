@@ -37,6 +37,89 @@
         this.overlay.setSelectionPath(null);
         this.overlay.clear();
       }
+      this._onSelectionChanged();
+    }
+
+    /** 整幅画布为选区。 */
+    selectAll() {
+      const db = this.board.drawingBoard;
+      const w = db.logicalWidth;
+      const h = db.logicalHeight;
+      this.mask = new Uint8Array(w * h);
+      this.mask.fill(1);
+      this.maskW = w;
+      this.maskH = h;
+      this.bbox = { x: 0, y: 0, w, h };
+      this.state = 'selected';
+      this._refreshSelectionOverlay();
+      this._onSelectionChanged();
+    }
+
+    /** 当前 bbox 内 mask 取反。 */
+    invertSelection() {
+      if (!this.isActive()) return;
+      for (let i = 0; i < this.mask.length; i += 1) {
+        this.mask[i] = this.mask[i] ? 0 : 1;
+      }
+      this._refreshSelectionOverlay();
+      this._onSelectionChanged();
+    }
+
+    /** 复制选区像素到新图层（原层保留）；异步等待 layer_added。 */
+    copyToNewLayer() {
+      if (!this.isActive()) return;
+      if (this.board._activeLayerLocked() || !this.board.canDraw) return;
+      if (!global.LayerMove) return;
+      const db = this.board.drawingBoard;
+      const w = db.logicalWidth;
+      const h = db.logicalHeight;
+      const bbox = this.bbox;
+      const layerId = this.board.activeLayerId;
+      const scratch = document.createElement('canvas');
+      scratch.width = w;
+      scratch.height = h;
+      const ctx = scratch.getContext('2d');
+      LayerMove._renderLayer(db, layerId, this.board.strokes, ctx);
+      const src = ctx.getImageData(bbox.x, bbox.y, bbox.w, bbox.h);
+      const patch = db.context.createImageData(bbox.w, bbox.h);
+      for (let i = 0; i < this.mask.length; i += 1) {
+        if (!this.mask[i]) continue;
+        const pi = i * 4;
+        patch.data[pi] = src.data[pi];
+        patch.data[pi + 1] = src.data[pi + 1];
+        patch.data[pi + 2] = src.data[pi + 2];
+        patch.data[pi + 3] = src.data[pi + 3];
+      }
+      this.board._pendingSelectionCopy = {
+        bbox: { x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h },
+        pixels: Array.from(patch.data)
+      };
+      this.board.createLayer();
+    }
+
+    /** 通知浮动栏刷新位置/可见性。 */
+    _onSelectionChanged() {
+      if (this.board && this.board.selectionActionsBar) {
+        this.board.selectionActionsBar.sync();
+      }
+    }
+
+    /** 按当前 bbox 重绘蚂蚁线 overlay。 */
+    _refreshSelectionOverlay() {
+      if (!this.overlay || !this.bbox) return;
+      const w = this.board.drawingBoard.logicalWidth;
+      const h = this.board.drawingBoard.logicalHeight;
+      const bx = this.bbox.x;
+      const by = this.bbox.y;
+      const bw = this.bbox.w;
+      const bh = this.bbox.h;
+      this.overlay.setPreview(null);
+      this.overlay.setSelectionPath([
+        { x: bx / w, y: by / h },
+        { x: (bx + bw) / w, y: by / h },
+        { x: (bx + bw) / w, y: (by + bh) / h },
+        { x: bx / w, y: (by + bh) / h }
+      ], true);
     }
 
     isActive() {
@@ -52,8 +135,11 @@
         this._dragStart = pt;
         return true;
       }
-      if (this.state === 'selected') {
+      if (this.state === 'selected' && this.board.currentTool !== 'move') {
         this.clear();
+      }
+      if (this.state === 'selected' && this.board.currentTool === 'move') {
+        return false;
       }
       this._start = pt;
       this._points = [pt];
@@ -282,6 +368,7 @@
           { x: bx / w, y: (by + bh) / h }
         ], true);
       }
+      this._onSelectionChanged();
     }
 
     _buildMagicWand(pt) {
@@ -347,47 +434,27 @@
       this.bbox = { x: minX, y: minY, w: bw, h: bh };
       this.state = 'selected';
       this._updateOverlay();
+      this._onSelectionChanged();
     }
 
     _commitMove(dx, dy) {
-      if (!this.mask || !this.bbox) return;
-      const db = this.board.drawingBoard;
-      const w = db.logicalWidth;
-      const h = db.logicalHeight;
-      const shiftX = Math.round(dx * w);
-      const shiftY = Math.round(dy * h);
-      if (!shiftX && !shiftY) return;
-
+      if (!this.mask || !this.bbox || !global.LayerMove) return;
       const oldBbox = { x: this.bbox.x, y: this.bbox.y, w: this.bbox.w, h: this.bbox.h };
-      const src = db.context.getImageData(oldBbox.x, oldBbox.y, oldBbox.w, oldBbox.h);
-      const erase = db.context.createImageData(oldBbox.w, oldBbox.h);
-      for (let i = 0; i < src.data.length; i += 4) {
-        const m = this.mask[i / 4];
-        if (m) erase.data[i + 3] = 255;
+      const dest = LayerMove.commitRasterMove(this.board, oldBbox, this.mask, dx, dy);
+      if (!dest) return;
+      this.bbox = dest;
+      if (this.overlay) {
+        this.overlay.setPreview(null);
+        const w = this.board.drawingBoard.logicalWidth;
+        const h = this.board.drawingBoard.logicalHeight;
+        this.overlay.setSelectionPath([
+          { x: dest.x / w, y: dest.y / h },
+          { x: (dest.x + dest.w) / w, y: dest.y / h },
+          { x: (dest.x + dest.w) / w, y: (dest.y + dest.h) / h },
+          { x: dest.x / w, y: (dest.y + dest.h) / h }
+        ], true);
       }
-      db.context.save();
-      db.context.globalCompositeOperation = 'destination-out';
-      db.context.putImageData(erase, oldBbox.x, oldBbox.y);
-      db.context.restore();
-      this._appendLocalRaster(oldBbox, true);
-
-      const destX = clamp(oldBbox.x + shiftX, 0, w - oldBbox.w);
-      const destY = clamp(oldBbox.y + shiftY, 0, h - oldBbox.h);
-      const patch = db.context.createImageData(oldBbox.w, oldBbox.h);
-      for (let row = 0; row < oldBbox.h; row += 1) {
-        for (let col = 0; col < oldBbox.w; col += 1) {
-          const mi = row * oldBbox.w + col;
-          if (!this.mask[mi]) continue;
-          const si = mi * 4;
-          patch.data[si] = src.data[si];
-          patch.data[si + 1] = src.data[si + 1];
-          patch.data[si + 2] = src.data[si + 2];
-          patch.data[si + 3] = src.data[si + 3];
-        }
-      }
-      db.context.putImageData(patch, destX, destY);
-      this.bbox = { x: destX, y: destY, w: oldBbox.w, h: oldBbox.h };
-      this._appendLocalRaster(this.bbox, false);
+      this._onSelectionChanged();
     }
 
     _applyToMask(mutate) {

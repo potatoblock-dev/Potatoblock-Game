@@ -105,5 +105,41 @@
     }
   }
 
+  /** 右栏粗细滑块旁的笔迹空心圆预览（白底条内）。 */
+  class BrushSizeDockPreview {
+    constructor(root, options) {
+      const settings = options || {};
+      this.root = root;
+      this.ring = root && root.querySelector('.brush-size-preview-ring');
+      this.getBrushSize = settings.getBrushSize || (() => 8);
+      this.getTool = settings.getTool || (() => 'brush');
+      this.maxDiameter = settings.maxDiameter || 36;
+    }
+
+    /** 将笔刷逻辑大小映射为预览区内的像素直径。 */
+    static dockDiameter(brushSize, maxPx) {
+      const size = Math.max(1, Number(brushSize) || 8);
+      const maxD = maxPx || 36;
+      const minD = 4;
+      return minD + ((size - 1) / 63) * (maxD - minD);
+    }
+
+    /** 刷新侧栏预览圆环大小与样式。 */
+    update() {
+      if (!this.root || !this.ring) return;
+      const tool = this.getTool();
+      if (!BRUSH_TOOLS.has(tool)) {
+        this.root.classList.add('hidden');
+        return;
+      }
+      this.root.classList.remove('hidden');
+      const diameter = BrushSizeDockPreview.dockDiameter(this.getBrushSize(), this.maxDiameter);
+      this.ring.style.width = diameter + 'px';
+      this.ring.style.height = diameter + 'px';
+      this.ring.classList.toggle('is-eraser', tool === 'eraser');
+    }
+  }
+
   global.BrushPreview = BrushPreview;
+  global.BrushSizeDockPreview = BrushSizeDockPreview;
 })(window);

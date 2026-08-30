@@ -27,6 +27,7 @@
     toolLine: { label: '直线工具', category: 'tools', bindings: ['KeyL', ''] },
     toolEyedropper: { label: '吸管工具', category: 'tools', bindings: ['KeyI', 'Mod+KeyI'] },
     toolHand: { label: '抓手工具', category: 'tools', bindings: ['KeyH', ''] },
+    toolMove: { label: '移动工具', category: 'tools', bindings: ['KeyV', ''] },
     selectionDelete: { label: '删除选区', category: 'tools', bindings: ['Delete', ''] },
     selectionFill: { label: '填充选区', category: 'tools', bindings: ['Mod+Delete', ''] },
     brushSizeUp: { label: '增大笔刷', category: 'brush', bindings: ['BracketRight', ''] },

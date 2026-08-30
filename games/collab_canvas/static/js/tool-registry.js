@@ -9,16 +9,17 @@
     fillGradient: { icon: 'gradient', label: '线性渐变' },
     line: { icon: 'timeline', label: '直线' },
     eyedropper: { icon: 'colorize', label: '吸管' },
-    rectOutline: { icon: 'crop_square', label: '空心矩形' },
-    rectFill: { icon: 'square', label: '实心矩形' },
-    ellipseOutline: { icon: 'circle', label: '空心圆形' },
-    ellipseFill: { icon: 'radio_button_unchecked', label: '实心圆形' },
+    rectOutline: { shapeIcon: 'rect', filled: false, label: '空心矩形' },
+    rectFill: { shapeIcon: 'rect', filled: true, label: '实心矩形' },
+    ellipseOutline: { shapeIcon: 'ellipse', filled: false, label: '空心圆形' },
+    ellipseFill: { shapeIcon: 'ellipse', filled: true, label: '实心圆形' },
     selectRect: { icon: 'crop_free', label: '矩形选区' },
     selectEllipse: { icon: 'lens_blur', label: '圆形选区' },
     selectLasso: { icon: 'gesture', label: '套索选区' },
     selectPolygon: { icon: 'pentagon', label: '多边形选区' },
     magicWand: { icon: 'auto_fix', label: '魔棒' },
     hand: { icon: 'pan_tool', label: '抓手' },
+    move: { icon: 'open_with', label: '移动' },
     zoom: { icon: 'zoom_in', label: '缩放' }
   };
 
@@ -35,12 +36,8 @@
       defaultVariant: 'rectOutline',
       variants: ['rectOutline', 'rectFill', 'ellipseOutline', 'ellipseFill']
     },
-    {
-      id: 'select',
-      type: 'flyout',
-      defaultVariant: 'selectRect',
-      variants: ['selectRect', 'selectEllipse', 'selectLasso', 'selectPolygon', 'magicWand']
-    },
+    { id: 'select', type: 'flyout', defaultVariant: 'selectRect', variants: ['selectRect', 'selectEllipse', 'selectLasso', 'selectPolygon', 'magicWand'] },
+    { id: 'move', type: 'single', toolId: 'move' },
     { id: 'hand', type: 'single', toolId: 'hand' },
     { id: 'zoom', type: 'single', toolId: 'zoom' }
   ];
@@ -53,6 +50,7 @@
     toolLine: 'line',
     toolEyedropper: 'eyedropper',
     toolHand: 'hand',
+    toolMove: 'move',
     toolZoom: 'zoom'
   };
 

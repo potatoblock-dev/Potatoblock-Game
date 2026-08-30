@@ -14,6 +14,28 @@
     <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png?v=2">
     <title>{{ site_title }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    /* 主页深色：Tailwind 默认 gray 偏蓝，改用 neutral 灰阶 */
+    tailwind.config = {
+      theme: {
+        colors: {
+          gray: {
+            50: '#fafafa',
+            100: '#f5f5f5',
+            200: '#e5e5e5',
+            300: '#d4d4d4',
+            400: '#a3a3a3',
+            500: '#737373',
+            600: '#525252',
+            700: '#404040',
+            800: '#262626',
+            900: '#1c1c1c',
+            950: '#121212',
+          },
+        },
+      },
+    };
+    </script>
     <link rel="stylesheet" href="https://cdn.potatoblock.com/day-night-toggle-button/theme-button.css">
     <script src="https://cdn.potatoblock.com/day-night-toggle-button/theme-button.js"></script>
     <script>
@@ -38,18 +60,21 @@
     })();
     </script>
     <style>
-    /* 深色：纯灰度（覆盖 Tailwind 默认 gray/slate 偏蓝） */
+    /* 深色：纯灰度（!important 压过 Tailwind CDN 运行时注入） */
     body {
-      background-color: #121212;
+      background-color: #121212 !important;
       color: #f5f5f5;
     }
-    .bg-gray-950 { background-color: #121212; }
-    .bg-gray-900 { background-color: #1c1c1c; }
-    .bg-gray-800 { background-color: #262626; }
-    .hover\:bg-gray-800:hover { background-color: #2e2e2e; }
-    .text-gray-400 { color: rgb(163 163 163); }
-    .text-gray-500 { color: rgb(115 115 115); }
-    .hover\:text-white:hover { color: #fafafa; }
+    .bg-gray-950 { background-color: #121212 !important; }
+    .bg-gray-900 { background-color: #1c1c1c !important; }
+    .bg-gray-800 { background-color: #262626 !important; }
+    .hover\:bg-gray-800:hover { background-color: #2e2e2e !important; }
+    .text-gray-400 { color: #a3a3a3 !important; }
+    .text-gray-500 { color: #737373 !important; }
+    .hover\:text-white:hover { color: #fafafa !important; }
+    html:not([data-theme='light']) .game-entry { background-color: #1c1c1c !important; }
+    html:not([data-theme='light']) .game-entry:hover { background-color: #2e2e2e !important; }
+    html:not([data-theme='light']) .game-entry .rounded-lg.bg-gray-800 { background-color: #262626 !important; }
 
     /* 主页浅色覆盖 */
     html[data-theme='light'] body { background-color: #eef1f6; color: #0f172a; }
