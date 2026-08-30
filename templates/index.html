@@ -60,31 +60,46 @@
     })();
     </script>
     <style>
-    /* 深色：纯灰度（!important 压过 Tailwind CDN 运行时注入） */
-    body {
+    /* 深色：纯灰度（仅 dark，!important 压过 Tailwind CDN） */
+    html:not([data-theme='light']) body.home-page {
       background-color: #121212 !important;
       color: #f5f5f5;
     }
-    .bg-gray-950 { background-color: #121212 !important; }
-    .bg-gray-900 { background-color: #1c1c1c !important; }
-    .bg-gray-800 { background-color: #262626 !important; }
-    .hover\:bg-gray-800:hover { background-color: #2e2e2e !important; }
-    .text-gray-400 { color: #a3a3a3 !important; }
-    .text-gray-500 { color: #737373 !important; }
-    .hover\:text-white:hover { color: #fafafa !important; }
-    html:not([data-theme='light']) .game-entry { background-color: #1c1c1c !important; }
+    html:not([data-theme='light']) .bg-gray-950 { background-color: #121212 !important; }
+    html:not([data-theme='light']) .bg-gray-900 { background-color: #1c1c1c !important; }
+    html:not([data-theme='light']) .bg-gray-800 { background-color: #262626 !important; }
+    html:not([data-theme='light']) .hover\:bg-gray-800:hover { background-color: #2e2e2e !important; }
+    html:not([data-theme='light']) .text-gray-400 { color: #a3a3a3 !important; }
+    html:not([data-theme='light']) .text-gray-500 { color: #737373 !important; }
+    html:not([data-theme='light']) .hover\:text-white:hover { color: #fafafa !important; }
+    html:not([data-theme='light']) .text-white { color: #f5f5f5 !important; }
+    html:not([data-theme='light']) .text-white\/80 { color: rgb(245 245 245 / .82) !important; }
+    html:not([data-theme='light']) .game-entry { background-color: #1c1c1c !important; color: #f5f5f5; }
     html:not([data-theme='light']) .game-entry:hover { background-color: #2e2e2e !important; }
     html:not([data-theme='light']) .game-entry .rounded-lg.bg-gray-800 { background-color: #262626 !important; }
 
-    /* 主页浅色覆盖 */
-    html[data-theme='light'] body { background-color: #eef1f6; color: #0f172a; }
-    html[data-theme='light'] .bg-gray-900 { background-color: #ffffff; }
-    html[data-theme='light'] .bg-gray-800 { background-color: #f1f5f9; }
-    html[data-theme='light'] .hover\:bg-gray-800:hover { background-color: #f8fafc; }
-    html[data-theme='light'] .text-white\/80 { color: rgb(15 23 42 / .82); }
-    html[data-theme='light'] .text-gray-400 { color: rgb(15 23 42 / .62); }
-    html[data-theme='light'] .text-gray-500 { color: rgb(15 23 42 / .5); }
-    html[data-theme='light'] .hover\:text-white:hover { color: #0f172a; }
+    /* 主页浅色 */
+    html[data-theme='light'] body.home-page {
+      background-color: #eef1f6 !important;
+      color: #0f172a !important;
+    }
+    html[data-theme='light'] .bg-gray-950 { background-color: #eef1f6 !important; }
+    html[data-theme='light'] .bg-gray-900 { background-color: #ffffff !important; }
+    html[data-theme='light'] .bg-gray-800 { background-color: #f1f5f9 !important; }
+    html[data-theme='light'] .hover\:bg-gray-800:hover { background-color: #f8fafc !important; }
+    html[data-theme='light'] .text-white { color: #0f172a !important; }
+    html[data-theme='light'] .text-white\/80 { color: rgb(15 23 42 / .82) !important; }
+    html[data-theme='light'] .text-gray-400 { color: rgb(15 23 42 / .62) !important; }
+    html[data-theme='light'] .text-gray-500 { color: rgb(15 23 42 / .5) !important; }
+    html[data-theme='light'] .hover\:text-white:hover { color: #0f172a !important; }
+    html[data-theme='light'] .game-entry {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+    }
+    html[data-theme='light'] .game-entry:hover { background-color: #f8fafc !important; }
+    html[data-theme='light'] .game-entry .rounded-lg.bg-gray-800 { background-color: #f1f5f9 !important; }
+    html[data-theme='light'] .game-entry h2 { color: #0f172a !important; }
+    html[data-theme='light'] .site-version { color: rgb(15 23 42 / .45) !important; opacity: 1 !important; }
 
     /* 系统设置 / 更新日志按钮 */
     .topbar-icon-btn {
