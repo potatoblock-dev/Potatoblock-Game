@@ -42,8 +42,11 @@
     return PASSPORT_ORIGIN + '/login?return_url=' + encodeURIComponent(returnUrl);
   }
 
-  /** 平板/手机或 PWA 独立窗口。 */
+  /** 平板/手机或 PWA 独立窗口（含 iPad 横屏，避免弹窗丢 return_url）。 */
   function isMobileLike() {
+    var ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod|Android/i.test(ua)) return true;
+    if (navigator.maxTouchPoints > 1 && /MacIntel|Mac/i.test(navigator.platform || '')) return true;
     if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) return true;
     if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
     return 'ontouchstart' in window && window.matchMedia('(pointer: coarse)').matches;
