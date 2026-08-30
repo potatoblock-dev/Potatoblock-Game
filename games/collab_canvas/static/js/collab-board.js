@@ -93,9 +93,14 @@
       }
       this.selectionManager = new SelectionManager(this, this.canvasOverlay);
       this.selectionActionsBar = new SelectionActionsBar(this, this.selectionManager);
+      this._lastPointerClientX = null;
+      this._lastPointerClientY = null;
       if (this.viewport) {
         this.viewport.onTransformChange = () => {
           if (this.selectionActionsBar) this.selectionActionsBar.sync();
+          if (this.brushPreview && this._lastPointerClientX != null && this._lastPointerClientY != null) {
+            this.brushPreview.update(this._lastPointerClientX, this._lastPointerClientY);
+          }
         };
       }
       if (typeof registerCollabTools === 'function') {
@@ -103,7 +108,9 @@
       }
 
       const cursorLayer = document.getElementById('cursorLayer');
-      this.brushPreview = new BrushPreview(cursorLayer, {
+      this.brushPreview = new BrushPreview(this.stage || cursorLayer, {
+        getStage: () => this.stage,
+        getViewportScale: () => (this.viewport ? this.viewport.scale : 1),
         getCanvas: () => this.canvas,
         getLogicalWidth: () => this.drawingBoard.logicalWidth,
         getBrushSize: () => this.currentSize,
@@ -1308,6 +1315,8 @@
 
     _onPointerMove(event) {
       if (this.viewport && this.viewport.isPanning()) return;
+      this._lastPointerClientX = event.clientX;
+      this._lastPointerClientY = event.clientY;
       const pt = this.normalizedPoint(event);
       if (this.brushPreview) this.brushPreview.update(event.clientX, event.clientY);
       if (BRUSH_TOOLS.has(this.currentTool) || this.isDrawing) {

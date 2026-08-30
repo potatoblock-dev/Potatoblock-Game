@@ -228,6 +228,15 @@
     return el.scrollTop + el.clientHeight < el.scrollHeight - 1;
   }
 
+  /** 触摸滑动是否应放行（表单控件、弹窗、标记忽略区）。 */
+  function shouldAllowTouchMove(target) {
+    if (!(target instanceof Element)) return false;
+    if (target.closest('[data-scroll-lock-ignore]')) return true;
+    if (target.closest('#settingsModal, .room-panel-modal')) return true;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return true;
+    return false;
+  }
+
   /** 画板房间页锁定 document 滚动；可滚动面板内仍允许滚轮/触摸滚动。 */
   function lockCollabPageScroll(roomRoot) {
     const root = roomRoot || document.getElementById('roomScreen');
@@ -243,7 +252,7 @@
 
     document.addEventListener('touchmove', event => {
       if (!isRoomActive(root)) return;
-      if (event.target.closest && event.target.closest('[data-scroll-lock-ignore]')) return;
+      if (shouldAllowTouchMove(event.target)) return;
       const scrollable = findScrollableAncestor(event.target, document.body);
       if (scrollable) return;
       event.preventDefault();

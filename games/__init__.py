@@ -30,7 +30,7 @@ def get_games():
 
 
 def register_routers(fastapi_app):
-    """注册每个游戏的路由，并挂载其静态资源目录；顺带挂上 git 自动更新。"""
+    """注册每个游戏的路由，并挂载其静态资源目录。"""
     for module_name in _iter_game_packages():
         module = importlib.import_module(f"app.games.{module_name}")
         if not hasattr(module, "game_info"):
@@ -50,6 +50,14 @@ def register_routers(fastapi_app):
             static_url,
             StaticFiles(directory=str(path)),
             name=mount_name,
+        )
+    # 共享 common 静态（drawing-board.js / css）
+    common_static = Path(__file__).resolve().parent / "common" / "static"
+    if common_static.is_dir():
+        fastapi_app.mount(
+            "/static/games/common",
+            StaticFiles(directory=str(common_static)),
+            name="game-static-common",
         )
     try:
         from app.pwa_routes import attach_pwa_routes

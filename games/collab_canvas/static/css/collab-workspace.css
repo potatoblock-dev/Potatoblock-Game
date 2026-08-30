@@ -509,7 +509,7 @@ body.is-dock-split-dragging * {
   }
 }
 
-#cursorLayer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+#cursorLayer { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 
 .brush-preview-ring {
   position: absolute; left: 0; top: 0; pointer-events: none; z-index: 4;
@@ -517,6 +517,9 @@ body.is-dock-split-dragging * {
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgb(255 255 255 / .45);
   box-sizing: border-box;
+}
+.canvas-stage > .brush-preview-ring {
+  z-index: 25;
 }
 .brush-preview-ring.is-eraser {
   border-style: dashed;
@@ -1135,7 +1138,16 @@ body.is-dock-split-dragging * {
 }
 .settings-row-check { gap: 8px; }
 .settings-row-label { flex: 0 0 84px; font-size: 12px; color: var(--ws-muted); }
-.settings-row input[type=range] { flex: 1; min-width: 0; }
+.settings-row input[type=range] {
+  flex: 1; min-width: 0;
+  touch-action: pan-x;
+  min-height: 28px;
+}
+.room-screen input[type=range],
+.tool-opts input[type=range] {
+  touch-action: pan-x;
+  min-height: 28px;
+}
 .settings-row output { font-size: 12px; color: var(--ws-muted); min-width: 40px; text-align: right; }
 .settings-text-input {
   flex: 1; min-width: 0; padding: 6px 8px; font-size: 13px;

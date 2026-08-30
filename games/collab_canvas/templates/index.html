@@ -83,6 +83,9 @@
             >
               <span id="collabFullscreenIcon" class="material-symbols-outlined ws-btn-icon" aria-hidden="true">fullscreen</span>
             </button>
+            <button type="button" id="roomPanelToggleBtn" class="ws-btn ws-btn-icon-only" data-tooltip="房间成员 (Tab)" aria-label="房间成员">
+              <span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">group</span>
+            </button>
             <button type="button" id="settingsToggleBtn" class="ws-btn ws-btn-icon-only" data-tooltip="设置" aria-label="设置">
               <span class="material-symbols-outlined ws-btn-icon" aria-hidden="true">settings</span>
             </button>
@@ -186,7 +189,7 @@
     </section>
   </main>
 
-  <div id="settingsModal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+  <div id="settingsModal" class="settings-modal hidden" data-scroll-lock-ignore role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
     <div class="settings-modal-backdrop" data-settings-backdrop>
       <div class="settings-modal-panel">
         <header class="settings-modal-header">

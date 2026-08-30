@@ -97,20 +97,21 @@
     _ringDiameter(entry) {
       const canvas = this.getCanvas();
       if (!canvas) return 0;
-      const rect = canvas.getBoundingClientRect();
-      if (!rect.width) return 0;
+      const layoutW = canvas.clientWidth;
+      if (!layoutW) return 0;
       const logicalWidth = this.getLogicalWidth();
       const lineWidth = (Number(entry.brushSize) || 8) * (logicalWidth / 640);
-      return Math.max(2, lineWidth * (rect.width / logicalWidth));
+      return Math.max(2, lineWidth * (layoutW / logicalWidth));
     }
 
     update(playerId, payload) {
       if (playerId === this.selfId) return;
       const entry = this._ensureEntry(playerId, payload.nickname);
-      const rect = this.container.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      const x = Number(payload.x) * rect.width;
-      const y = Number(payload.y) * rect.height;
+      const layoutW = this.container.clientWidth;
+      const layoutH = this.container.clientHeight;
+      if (!layoutW || !layoutH) return;
+      const x = Number(payload.x) * layoutW;
+      const y = Number(payload.y) * layoutH;
       entry.fromX = entry.toX;
       entry.fromY = entry.toY;
       entry.toX = x;

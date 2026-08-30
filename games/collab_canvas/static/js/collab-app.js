@@ -536,6 +536,19 @@
     onSetPermissions: patch => session.sendHostPermissions(patch)
   });
 
+  const roomPanelToggleBtn = document.getElementById('roomPanelToggleBtn');
+
+  /** 开关房间成员面板（与 Tab 键相同；设置弹窗打开时不触发）。 */
+  function tryToggleRoomPanel() {
+    if (!roomScreen || roomScreen.classList.contains('hidden')) return;
+    if (settingsPanel && settingsPanel.isOpen()) return;
+    roomPanel.toggle();
+  }
+
+  if (roomPanelToggleBtn) {
+    roomPanelToggleBtn.addEventListener('click', () => tryToggleRoomPanel());
+  }
+
   document.addEventListener('keydown', event => {
     if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
     if (!roomScreen || roomScreen.classList.contains('hidden')) return;
@@ -544,7 +557,7 @@
     if (settingsPanel && settingsPanel.isOpen()) return;
     event.preventDefault();
     event.stopPropagation();
-    roomPanel.toggle();
+    tryToggleRoomPanel();
   }, true);
 
   if (stage) {
