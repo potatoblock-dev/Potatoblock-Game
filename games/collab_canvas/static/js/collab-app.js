@@ -135,7 +135,14 @@
   const canvasViewport = new CanvasViewport({
     stage,
     surface: stageSurface,
-    badge: zoomBadge
+    badge: zoomBadge,
+    gesturesEnabled: uiPrefs.getGesturesEnabled()
+  });
+
+  uiPrefs.onChange(() => {
+    // 同步多指手势开关与工作区布局。
+    canvasViewport.setGesturesEnabled(uiPrefs.getGesturesEnabled());
+    uiPrefs.applyToWorkspace(document.getElementById('collabWorkspace'));
   });
 
   const workspaceLayout = new WorkspaceLayout({
@@ -256,12 +263,22 @@
     navigator.clipboard.writeText(link).then(() => setStatus('链接已复制'));
   }
 
-  function leaveRoom() {
+  /** 房主退出：有房客则自动转移房主；无房客则提醒保存 .pbcc。 */
+  async function leaveRoom() {
     if (boardController) {
       boardController.stopPbccAutoSave();
-      if (boardController.isHost()) {
-        boardController.saveLocalPbccSnapshot();
+    }
+    const isHost = boardController && boardController.isHost();
+    const guests = boardController.getPlayersSnapshot().filter(p => p.uid !== boardController.ownerId).length;
+    if (isHost && guests === 0) {
+      // 无房客：提醒保存，离开后画板将从服务端删除。
+      const wantSave = confirm('房间内没有其他成员，离开后画板会被删除。\n是否先导出 .pbcc 保存画板？');
+      if (wantSave && boardController) {
+        await boardController.exportAllBoards('pbcc');
       }
+    } else if (isHost && guests > 0) {
+      // 有房客：服务端会自动转移房主，先通知一下。
+      setStatus('正在离开房间，房主将转移给其他房客…');
     }
     if (session.roomId) {
       session.leaveRoom();

@@ -108,6 +108,11 @@
 .collab-desktop-only { display: inline-flex; }
 @media (hover: none), (pointer: coarse) {
   .collab-desktop-only { display: none !important; }
+  [data-desktop-only] { display: none !important; }
+}
+/* 触屏设备上才显示多指手势开关（桌面用滚轮/中键，不显示）。 */
+@media (hover: hover) and (pointer: fine) {
+  [data-mobile-only] { display: none !important; }
 }
 
 #collabWorkspace {

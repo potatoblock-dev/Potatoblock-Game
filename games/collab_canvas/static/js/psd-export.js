@@ -71,6 +71,35 @@
     return out;
   }
 
+  /** 8BIM 附加信息块（key 四字符 + 4 字节对齐数据）。 */
+  function bimBlock(key, data) {
+    const keyArr = new Uint8Array(4);
+    for (let i = 0; i < 4; i += 1) {
+      keyArr[i] = (key.charCodeAt(i) || 32) & 0xff;
+    }
+    const pad = (4 - (data.length % 4)) % 4;
+    const padded = pad ? concat([data, new Uint8Array(pad)]) : data;
+    return concat([
+      new Uint8Array([0x38, 0x42, 0x49, 0x4d]),
+      keyArr,
+      u32(padded.length),
+      padded
+    ]);
+  }
+
+  /** Unicode 图层名（8BIM luni，Photoshop / ag-psd 兼容）。 */
+  function unicodeLayerNameBlock(name) {
+    const text = String(name || 'Layer').slice(0, 255);
+    const chars = text.length + 1;
+    const utf16 = new Uint8Array(chars * 2);
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i);
+      utf16[i * 2] = (code >> 8) & 0xff;
+      utf16[i * 2 + 1] = code & 0xff;
+    }
+    return bimBlock('luni', concat([u32(chars), utf16]));
+  }
+
   /** 构建单层 Layer record（channel length 稍后回填）。 */
   function buildLayerRecord(width, height, opacity, name, patchTargets) {
     const top = 0;
@@ -102,7 +131,8 @@
     const extra = concat([
       u32(0),
       u32(0),
-      pascalLayerName(name)
+      pascalLayerName(name),
+      unicodeLayerNameBlock(name)
     ]);
     parts.push(u32(extra.length), extra);
     return concat(parts);
@@ -161,17 +191,24 @@
       });
     });
 
-    const layerInfoBody = concat([
+    const layerRecordsBody = concat([
       i16(layers.length),
       ...layerRecords,
-      ...channelBlocks,
-      u32(0)
+      ...channelBlocks
     ]);
     lengthPatches.forEach(patch => {
       patch.target.set(u32(patch.length));
     });
 
-    const layerAndMask = concat([u32(layerInfoBody.length), layerInfoBody]);
+    const layerInfoBody = concat([
+      u32(layerRecordsBody.length),
+      layerRecordsBody
+    ]);
+    const layerAndMask = concat([
+      u32(layerInfoBody.length + 4),
+      layerInfoBody,
+      u32(0)
+    ]);
     const composite = buildCompositeImageData(compositeRgba, w, h);
     const header = concat([
       new Uint8Array([0x38, 0x42, 0x50, 0x53]),

@@ -1,6 +1,8 @@
 (function (global) {
   'use strict';
-  const VALID_TOOLS = new Set(['brush', 'eraser', 'fill', 'background', 'line', 'rect', 'ellipse', 'gradient']);
+  const VALID_TOOLS = new Set(['brush', 'eraser', 'glow', 'spray', 'fill', 'background', 'line', 'rect', 'ellipse', 'gradient']);
+  const FREEHAND_TOOLS = new Set(['brush', 'eraser']);
+  const STROKE_VARIANT_TOOLS = new Set(['brush', 'eraser', 'glow', 'spray']);
   const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
   const unitNumber = value => {
     const number = Number(value);
@@ -214,6 +216,154 @@
       const background = hexToRgb(this.backgroundColor);
       return rgbToHex(pixel[0] * alpha + background.r * (1 - alpha), pixel[1] * alpha + background.g * (1 - alpha), pixel[2] * alpha + background.b * (1 - alpha));
     }
+
+    /** 逻辑线宽：归一化 size → 像素直径（与旧版 lineWidth 一致）。 */
+    _strokeSizePx(segment) {
+      return clamp(Number(segment.size) || 5, 1, 128) * (this.logicalWidth / 640);
+    }
+
+    /** 从 segment 提取 perfect-freehand 输入点（归一化 → 像素 + 可选压力）。 */
+    _segmentStrokePoints(segment) {
+      const w = this.logicalWidth;
+      const h = this.logicalHeight;
+      if (Array.isArray(segment.points) && segment.points.length >= 1) {
+        return segment.points.map(point => ({
+          x: unitNumber(point.x) * w,
+          y: unitNumber(point.y) * h,
+          pressure: point.pressure != null ? clamp(Number(point.pressure), 0, 1) : undefined
+        }));
+      }
+      const pMid = 0.5;
+      return [
+        {
+          x: unitNumber(segment.x1) * w,
+          y: unitNumber(segment.y1) * h,
+          pressure: segment.p1 != null ? clamp(Number(segment.p1), 0, 1) : pMid
+        },
+        {
+          x: unitNumber(segment.x2) * w,
+          y: unitNumber(segment.y2) * h,
+          pressure: segment.p2 != null ? clamp(Number(segment.p2), 0, 1) : pMid
+        }
+      ];
+    }
+
+    /** 旧版两点连线（无 perfect-freehand 时的向后兼容路径）。 */
+    _drawLegacyStroke(context, x1, y1, x2, y2, lineWidth, strokeStyle, composite) {
+      context.save();
+      context.globalCompositeOperation = composite;
+      context.strokeStyle = strokeStyle;
+      context.lineWidth = lineWidth;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      context.beginPath();
+      context.moveTo(x1, y1);
+      context.lineTo(x2, y2);
+      context.stroke();
+      context.restore();
+    }
+
+    /** 用 perfect-freehand 轮廓填充一笔（brush / eraser）。 */
+    _drawFreehandStroke(context, segment, strokeStyle, composite) {
+      const pf = global.PerfectFreehand;
+      if (!pf || typeof pf.getStroke !== 'function') {
+        const x1 = unitNumber(segment.x1) * this.logicalWidth;
+        const y1 = unitNumber(segment.y1) * this.logicalHeight;
+        const x2 = unitNumber(segment.x2) * this.logicalWidth;
+        const y2 = unitNumber(segment.y2) * this.logicalHeight;
+        this._drawLegacyStroke(context, x1, y1, x2, y2, this._strokeSizePx(segment), strokeStyle, composite);
+        return;
+      }
+      const sizePx = this._strokeSizePx(segment);
+      const points = this._segmentStrokePoints(segment);
+      const preset = segment.brushPreset || null;
+      const strokePart = segment.strokePart || 'mid';
+      let options;
+      if (preset && typeof preset.getStrokeOptions === 'function') {
+        options = preset.getStrokeOptions(sizePx, strokePart);
+      } else {
+        options = {
+          size: sizePx,
+          thinning: segment.thinning != null ? Number(segment.thinning) : 0.5,
+          smoothing: segment.smoothing != null ? Number(segment.smoothing) : 0.5,
+          streamline: segment.streamline != null ? Number(segment.streamline) : 0.5,
+          simulatePressure: true,
+          start: { taper: strokePart === 'start' || strokePart === 'single' },
+          end: { taper: strokePart === 'end' || strokePart === 'single' },
+          last: strokePart === 'end' || strokePart === 'single'
+        };
+      }
+      const outline = pf.getStroke(points, options);
+      if (!outline.length) return;
+      context.save();
+      context.globalCompositeOperation = composite;
+      context.fillStyle = strokeStyle;
+      pf.fillStrokePath(context, outline);
+      context.restore();
+    }
+
+    /** 光晕笔占位：中点软边径向渐变圆。 */
+    _drawGlowStroke(context, segment, strokeStyle) {
+      const x1 = unitNumber(segment.x1) * this.logicalWidth;
+      const y1 = unitNumber(segment.y1) * this.logicalHeight;
+      const x2 = unitNumber(segment.x2) * this.logicalWidth;
+      const y2 = unitNumber(segment.y2) * this.logicalHeight;
+      const radius = this._strokeSizePx(segment);
+      const cx = (x1 + x2) / 2;
+      const cy = (y1 + y2) / 2;
+      const rgb = hexToRgb(strokeStyle);
+      const opacity = segment.opacity != null ? clamp(Number(segment.opacity), 0, 1) : 0.55;
+      context.save();
+      context.globalCompositeOperation = 'source-over';
+      context.globalAlpha = opacity;
+      const grad = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
+      grad.addColorStop(0, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + opacity + ')');
+      grad.addColorStop(1, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0)');
+      context.fillStyle = grad;
+      context.beginPath();
+      context.arc(cx, cy, radius, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+    }
+
+    /** 喷笔占位：沿线段确定性散布圆点（重绘一致）。 */
+    _drawSprayStroke(context, segment, strokeStyle) {
+      const x1 = unitNumber(segment.x1) * this.logicalWidth;
+      const y1 = unitNumber(segment.y1) * this.logicalHeight;
+      const x2 = unitNumber(segment.x2) * this.logicalWidth;
+      const y2 = unitNumber(segment.y2) * this.logicalHeight;
+      const sizePx = this._strokeSizePx(segment);
+      const dist = Math.hypot(x2 - x1, y2 - y1);
+      const spacing = sizePx * (segment.spacing != null ? Number(segment.spacing) : 0.25);
+      const steps = Math.max(1, Math.floor(dist / Math.max(spacing, 1)));
+      let seed = Math.floor(
+        (unitNumber(segment.x1) * 9973 + unitNumber(segment.y1) * 7919
+          + unitNumber(segment.x2) * 6151 + unitNumber(segment.y2) * 5399) * 10000
+      ) | 0;
+      const rand = () => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return (seed % 10000) / 10000;
+      };
+      const jitter = segment.randomJitter != null ? Number(segment.randomJitter) : 0.35;
+      const dotR = Math.max(0.5, sizePx * 0.12);
+      const opacity = segment.opacity != null ? clamp(Number(segment.opacity), 0, 1) : 0.75;
+      context.save();
+      context.globalCompositeOperation = 'source-over';
+      context.fillStyle = strokeStyle;
+      context.globalAlpha = opacity;
+      for (let i = 0; i <= steps; i += 1) {
+        const t = i / steps;
+        const jx = (rand() - 0.5) * sizePx * jitter;
+        const jy = (rand() - 0.5) * sizePx * jitter;
+        const px = x1 + (x2 - x1) * t + jx;
+        const py = y1 + (y2 - y1) * t + jy;
+        context.beginPath();
+        context.arc(px, py, dotR, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.restore();
+    }
+
     drawSegment(segment) {
       if (segment && segment.tool === 'localRaster') return this.drawLocalRaster(segment);
       if (!segment || !VALID_TOOLS.has(segment.tool || 'brush')) return false;
@@ -222,7 +372,7 @@
       if (tool === 'fill') return this.floodFill(segment).changed;
       if (tool === 'gradient') return this.drawGradient(segment);
       const strokeStyle = isHexColor(segment.color) ? segment.color : '#111827';
-      if (this.pixelMode && (tool === 'brush' || tool === 'eraser')) {
+      if (this.pixelMode && STROKE_VARIANT_TOOLS.has(tool)) {
         this.stampPixelStroke(
           this.context,
           unitNumber(segment.x1),
@@ -239,8 +389,24 @@
       const y1 = unitNumber(segment.y1) * this.logicalHeight;
       const x2 = unitNumber(segment.x2) * this.logicalWidth;
       const y2 = unitNumber(segment.y2) * this.logicalHeight;
-      const lineWidth = clamp(Number(segment.size) || 5, 1, 128) * (this.logicalWidth / 640);
+      const lineWidth = this._strokeSizePx(segment);
       const composite = tool === 'eraser' ? 'destination-out' : 'source-over';
+      if (FREEHAND_TOOLS.has(tool)) {
+        if (segment.legacy === true) {
+          this._drawLegacyStroke(this.context, x1, y1, x2, y2, lineWidth, strokeStyle, composite);
+        } else {
+          this._drawFreehandStroke(this.context, segment, strokeStyle, composite);
+        }
+        return true;
+      }
+      if (tool === 'glow') {
+        this._drawGlowStroke(this.context, segment, strokeStyle);
+        return true;
+      }
+      if (tool === 'spray') {
+        this._drawSprayStroke(this.context, segment, strokeStyle);
+        return true;
+      }
       const paint = context => {
         context.save();
         context.globalCompositeOperation = composite;
@@ -270,11 +436,6 @@
           context.ellipse(cx, cy, Math.max(rx, 0.5), Math.max(ry, 0.5), 0, 0, Math.PI * 2);
           if (segment.filled) context.fill();
           else context.stroke();
-        } else {
-          context.beginPath();
-          context.moveTo(x1, y1);
-          context.lineTo(x2, y2);
-          context.stroke();
         }
         context.restore();
       };

@@ -2,6 +2,7 @@
   'use strict';
 
   const SELECT_TOOLS = new Set(['selectRect', 'selectEllipse', 'selectLasso', 'selectPolygon', 'magicWand']);
+  const STROKE_DRAW_TOOLS = new Set(['brush', 'eraser', 'glow', 'spray']);
   const SHAPE_TOOLS = {
     rectOutline: { tool: 'rect', filled: false },
     rectFill: { tool: 'rect', filled: true },
@@ -20,6 +21,16 @@
       onPointerUp(ctx) { return brushUp(board, ctx); }
     });
     controller.register('eraser', {
+      onPointerDown(ctx) { return brushDown(board, ctx); },
+      onPointerMove(ctx) { return brushMove(board, ctx); },
+      onPointerUp(ctx) { return brushUp(board, ctx); }
+    });
+    controller.register('glow', {
+      onPointerDown(ctx) { return brushDown(board, ctx); },
+      onPointerMove(ctx) { return brushMove(board, ctx); },
+      onPointerUp(ctx) { return brushUp(board, ctx); }
+    });
+    controller.register('spray', {
       onPointerDown(ctx) { return brushDown(board, ctx); },
       onPointerMove(ctx) { return brushMove(board, ctx); },
       onPointerUp(ctx) { return brushUp(board, ctx); }
@@ -328,6 +339,25 @@
     return { x: x1 + Math.cos(snapped) * len, y: y1 + Math.sin(snapped) * len };
   }
 
+function presetSegmentFields(board) {
+  const preset = board.brushPreset;
+  if (!preset) return {};
+  return {
+    thinning: preset.thinning,
+    smoothing: preset.smoothing,
+    streamline: preset.streamline,
+    opacity: preset.opacity,
+    spacing: preset.spacing,
+    randomJitter: preset.randomJitter
+  };
+}
+
+function resolveStrokeTool(board, event) {
+  if (board.penInput.isPenEraser(event)) return 'eraser';
+  const tool = board.currentTool;
+  return STROKE_DRAW_TOOLS.has(tool) ? tool : 'brush';
+}
+
 function brushDown(board, ctx) {
   const { event } = ctx;
   if (!board.canDraw) return false;
@@ -338,7 +368,8 @@ function brushDown(board, ctx) {
   board.activeDrawPointerId = event.pointerId;
   board.isDrawing = true;
   board.activeStrokeId = crypto.randomUUID();
-  board.activeStrokeTool = board.penInput.isPenEraser(event) ? 'eraser' : board.currentTool;
+  board.activeStrokeTool = resolveStrokeTool(board, event);
+  board._strokeSegmentIndex = 0;
   board.lastPoint = board.normalizedPoint(event);
   if (board.strokeSmoother) {
     board.strokeSmoother.reset();
@@ -374,15 +405,35 @@ function brushMove(board, ctx) {
   const dy = drawPt.y - board.lastPoint.y;
   const minDist = 0.5 / Math.max(board.drawingBoard.logicalWidth, 1);
   if (dx * dx + dy * dy < minDist * minDist) return true;
-  const segment = {
+  const isStylus = drawPt.pressure != null;
+  const sizeStart = board.penInput.sizeForPressure(
+    board.lastPoint.pressure != null ? board.lastPoint.pressure : 0.5,
+    isStylus,
+    event
+  );
+  const sizeEnd = board.penInput.sizeForPressure(
+    drawPt.pressure != null ? drawPt.pressure : 0.5,
+    isStylus,
+    event
+  );
+  const strokePart = board._strokeSegmentIndex === 0 ? 'start' : 'mid';
+  board._strokeSegmentIndex += 1;
+  const p1 = board.penInput.pressureFromSize(sizeStart, isStylus);
+  const p2 = board.penInput.pressureFromSize(sizeEnd, isStylus);
+  const segment = Object.assign({
     x1: board.lastPoint.x,
     y1: board.lastPoint.y,
     x2: drawPt.x,
     y2: drawPt.y,
     color: board.currentColor,
-    size: board.penInput.sizeForPressure(drawPt.pressure, drawPt.pressure != null),
-    tool: board.activeStrokeTool === 'eraser' ? 'eraser' : 'brush'
-  };
+    size: sizeEnd,
+    tool: board.activeStrokeTool,
+    strokePart,
+    points: [
+      { x: board.lastPoint.x, y: board.lastPoint.y, pressure: p1 },
+      { x: drawPt.x, y: drawPt.y, pressure: p2 }
+    ]
+  }, presetSegmentFields(board));
   board._appendLocalSegment(board.activeStrokeId, segment);
   board.lastPoint = drawPt;
   return true;
@@ -392,10 +443,12 @@ function brushUp(board, ctx) {
   const { event } = ctx;
   if (event.pointerId !== board.activeDrawPointerId) return false;
   if (board.penInput.isStylus(event)) board.penInput.clearPenPointer(event);
+  board._finalizeActiveStroke();
   board.isDrawing = false;
   board.activeDrawPointerId = null;
   board.activeStrokeId = '';
   board.lastPoint = null;
+  board._strokeSegmentIndex = 0;
   if (board.strokeSmoother) board.strokeSmoother.reset();
   board.stage.classList.remove('stylus-ready');
   board.adapter.flushSegments();

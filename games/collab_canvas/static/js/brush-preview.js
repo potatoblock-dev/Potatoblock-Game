@@ -1,7 +1,7 @@
 (function (global) {
   'use strict';
 
-  const BRUSH_TOOLS = new Set(['brush', 'eraser']);
+  const BRUSH_TOOLS = new Set(['brush', 'eraser', 'glow', 'spray']);
 
   /** 本地笔刷空心圆预览（大小与笔刷一致）。 */
   class BrushPreview {

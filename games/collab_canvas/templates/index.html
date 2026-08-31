@@ -201,7 +201,7 @@
         <div class="settings-modal-tabs">
           <button type="button" class="settings-modal-tab is-active" data-settings-tab="general">常规</button>
           <button type="button" class="settings-modal-tab" data-settings-tab="peripheral">外设</button>
-          <button type="button" class="settings-modal-tab" data-settings-tab="shortcuts">快捷键</button>
+          <button type="button" class="settings-modal-tab" data-settings-tab="shortcuts" data-desktop-only>快捷键</button>
           <button type="button" class="settings-modal-tab" data-settings-tab="online">联机</button>
           <button type="button" class="settings-modal-tab" data-settings-tab="network">网络</button>
         </div>
@@ -237,6 +237,10 @@
               <label class="settings-row settings-row-check">
                 <input id="settingsSwapSidebars" type="checkbox">
                 <span>反转左右栏</span>
+              </label>
+              <label class="settings-row settings-row-check" data-mobile-only>
+                <input id="settingsGestures" type="checkbox">
+                <span>多指手势（平移/缩放/旋转）</span>
               </label>
             </section>
             <section class="settings-subsection">
@@ -292,7 +296,7 @@
               </div>
             </section>
           </div>
-          <div class="settings-modal-pane" data-settings-pane="shortcuts">
+          <div class="settings-modal-pane" data-settings-pane="shortcuts" data-desktop-only>
             <section class="settings-subsection">
               <h3 class="settings-subsection-head"><span>快捷键绑定</span></h3>
               <p class="settings-hint">点击键位按钮后按下组合键；右键点击可清除绑定。</p>
@@ -379,6 +383,7 @@
       initialRoom: {{ initial_room | tojson }}
     };
   </script>
+  <script src="{{ cc('js/perfect-freehand.js') }}"></script>
   <script src="{{ cc('js/drawing-board.js') }}"></script>
   <script src="{{ cc('js/collab-board-adapter.js') }}"></script>
   <script src="{{ cc('js/pen-input.js') }}"></script>
@@ -402,6 +407,7 @@
   <script src="{{ cc('js/selection-manager.js') }}"></script>
   <script src="{{ cc('js/selection-actions-bar.js') }}"></script>
   <script src="{{ cc('js/layer-move.js') }}"></script>
+  <script src="{{ cc('js/brush-preset.js') }}"></script>
   <script src="{{ cc('js/tools/register-tools.js') }}"></script>
   <script src="{{ cc('js/ui-tooltip.js') }}"></script>
   <script src="{{ cc('js/ui-prefs.js') }}"></script>

@@ -42,6 +42,7 @@
       this.wandToleranceInput = this.modal && this.modal.querySelector('#settingsWandTolerance');
       this.wandToleranceOut = this.modal && this.modal.querySelector('#settingsWandToleranceOut');
       this.swapSidebarsToggle = this.modal && this.modal.querySelector('#settingsSwapSidebars');
+      this.gesturesToggle = this.modal && this.modal.querySelector('#settingsGestures');
       this.getDrawingBoard = settings.getDrawingBoard || (() => null);
       this.getBoardController = settings.getBoardController || (() => null);
       this.onlinePrefs = settings.onlinePrefs || null;
@@ -118,7 +119,16 @@
         this.uiPrefs.applyToWorkspace();
       }
       this.modal.classList.remove('hidden');
-      this._switchTab(this._activeTab || 'general');
+      // 若上次激活的 Tab（如快捷键）在当前设备被隐藏，回退到「常规」。
+      const fallback = this._isTabHidden(this._activeTab) ? 'general' : (this._activeTab || 'general');
+      this._switchTab(fallback);
+    }
+
+    /** 该 Tab 是否在触屏设备上被隐藏（data-desktop-only）。 */
+    _isTabHidden(tabId) {
+      const pane = this.panes && Array.from(this.panes).find(p => p.getAttribute('data-settings-pane') === tabId);
+      if (!pane) return false;
+      return getComputedStyle(pane).display === 'none';
     }
 
     close() {
@@ -322,6 +332,12 @@
         this.swapSidebarsToggle.checked = this.uiPrefs.getSwapSidebars();
         this.swapSidebarsToggle.addEventListener('change', () => {
           this.uiPrefs.setSwapSidebars(this.swapSidebarsToggle.checked);
+        });
+      }
+      if (this.gesturesToggle && this.uiPrefs) {
+        this.gesturesToggle.checked = this.uiPrefs.getGesturesEnabled();
+        this.gesturesToggle.addEventListener('change', () => {
+          this.uiPrefs.setGesturesEnabled(this.gesturesToggle.checked);
         });
       }
     }

@@ -4,6 +4,8 @@
   /** 全部工具变体元数据。 */
   const TOOL_META = {
     brush: { icon: 'brush', label: '画笔' },
+    glow: { icon: 'flare', label: '光晕笔' },
+    spray: { icon: 'blur_on', label: '喷笔' },
     eraser: { icon: 'ink_eraser', label: '橡皮' },
     fillBucket: { icon: 'format_color_fill', label: '油漆桶' },
     fillGradient: { icon: 'gradient', label: '线性渐变' },
@@ -25,7 +27,7 @@
 
   /** 左侧工具栏分组（flyout 组含 variants）。 */
   const TOOL_GROUPS = [
-    { id: 'brush', type: 'single', toolId: 'brush' },
+    { id: 'brush', type: 'flyout', defaultVariant: 'brush', variants: ['brush', 'glow', 'spray'] },
     { id: 'eraser', type: 'single', toolId: 'eraser' },
     { id: 'fill', type: 'flyout', defaultVariant: 'fillBucket', variants: ['fillBucket', 'fillGradient'] },
     { id: 'line', type: 'single', toolId: 'line' },

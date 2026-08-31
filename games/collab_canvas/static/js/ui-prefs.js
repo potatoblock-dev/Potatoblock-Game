@@ -7,6 +7,7 @@
   class UiPrefs {
     constructor() {
       this._swapSidebars = false;
+      this._gesturesEnabled = true;
       this._listeners = [];
       this._load();
     }
@@ -18,6 +19,7 @@
         if (!raw) return;
         const data = JSON.parse(raw);
         this._swapSidebars = Boolean(data.swapSidebars);
+        this._gesturesEnabled = data.gesturesEnabled !== false;
       } catch (_err) {}
     }
 
@@ -25,7 +27,8 @@
     _save() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          swapSidebars: this._swapSidebars
+          swapSidebars: this._swapSidebars,
+          gesturesEnabled: this._gesturesEnabled
         }));
       } catch (_err) {}
     }
@@ -41,6 +44,20 @@
       this._swapSidebars = next;
       if (changed) this._save();
       this.applyToWorkspace();
+      if (changed) this._notify();
+    }
+
+    /** 是否启用多指画布手势。 */
+    getGesturesEnabled() {
+      return this._gesturesEnabled;
+    }
+
+    /** 开关多指画布手势并持久化。 */
+    setGesturesEnabled(on) {
+      const next = Boolean(on);
+      const changed = next !== this._gesturesEnabled;
+      this._gesturesEnabled = next;
+      if (changed) this._save();
       if (changed) this._notify();
     }
 

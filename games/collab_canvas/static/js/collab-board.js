@@ -22,7 +22,7 @@
     '#111827', '#ef4444', '#f97316', '#eab308', '#22c55e',
     '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'
   ];
-  const BRUSH_TOOLS = new Set(['brush', 'eraser']);
+  const BRUSH_TOOLS = new Set(['brush', 'eraser', 'glow', 'spray']);
 
   /** 画板绘制生命周期：本地优先 + 联机同步。 */
   class CollabBoardController {
@@ -70,6 +70,8 @@
       this.currentTool = 'brush';
       this.currentColor = this.colorPair ? this.colorPair.foreground : '#111827';
       this.currentSize = 8;
+      this.brushPreset = typeof BrushPreset !== 'undefined' ? new BrushPreset() : null;
+      if (this.brushPreset) this.brushPreset.setSize(this.currentSize);
       this.wandTolerance = 20;
       this.exportRegistry = new CollabExportRegistry();
       this._exportBusy = false;
@@ -370,6 +372,9 @@
       const resolved = ToolRegistry.resolveTool(toolId, this.toolRail ? this.toolRail.variantStore : null);
       const prev = this.currentTool;
       this.currentTool = resolved;
+      if (this.brushPreset && typeof STROKE_TOOLS !== 'undefined' && STROKE_TOOLS.has(resolved)) {
+        this.brushPreset.setTool(resolved);
+      }
       if (this.toolRail) this.toolRail.setTool(resolved, { silent: true });
       if (this.stage) {
         this.stage.dataset.tool = resolved;
@@ -397,7 +402,9 @@
         zoom: 'zoom-in',
         line: 'crosshair',
         brush: 'none',
-        eraser: 'none'
+        eraser: 'none',
+        glow: 'none',
+        spray: 'none'
       };
       if (map[id]) return map[id];
       if (id.startsWith('select') || id === 'magicWand') return 'crosshair';
@@ -442,6 +449,16 @@
       });
     }
 
+    /** 标记当前笔划末段以启用 perfect-freehand 收尾锥形。 */
+    _finalizeActiveStroke() {
+      if (!this.activeStrokeId || !this.ownerId) return;
+      const stroke = DrawingBoard.findStroke(this.strokes, this.ownerId, this.activeStrokeId);
+      if (!stroke || !stroke.segments.length) return;
+      const last = stroke.segments[stroke.segments.length - 1];
+      if (last.strokePart === 'start') last.strokePart = 'single';
+      else last.strokePart = 'end';
+    }
+
     _adjustBrushSize(delta) {
       this._setBrushSize(this.currentSize + delta);
     }
@@ -449,6 +466,7 @@
     /** 同步滑块、数字框与 currentSize。 */
     _setBrushSize(value) {
       this.currentSize = roundBrushSize(value);
+      if (this.brushPreset) this.brushPreset.setSize(this.currentSize);
       const sizeSlider = document.getElementById('brushSize');
       const sizeNumber = document.getElementById('brushSizeNumber');
       if (sizeSlider) sizeSlider.value = String(this.currentSize);
@@ -1314,11 +1332,20 @@
       if (event.button !== 0 && !this.penInput.isPenEraser(event)) return;
       if (this.viewport && this.viewport.isPanning()) return;
       if (this.penInput.shouldIgnorePointer(event, this.activeDrawPointerId)) return;
+      // 第二根手指落下时，取消进行中的单指笔划，交给多指手势处理画布。
+      if (this.viewport && this.viewport.isTouchGestureActive()) {
+        this._cancelActiveStroke();
+      }
       if (this.toolController && this.toolController.onPointerDown(event)) return;
     }
 
     _onPointerMove(event) {
       if (this.viewport && this.viewport.isPanning()) return;
+      // 多指手势期间不派发到画笔，避免误画；已有笔划在首指抬起前被取消。
+      if (this.viewport && this.viewport.isTouchGestureActive()) {
+        if (this.isDrawing) this._cancelActiveStroke();
+        return;
+      }
       this._lastPointerClientX = event.clientX;
       this._lastPointerClientY = event.clientY;
       const pt = this.normalizedPoint(event);
@@ -1333,6 +1360,18 @@
 
     _onPointerUp(event) {
       if (this.toolController && this.toolController.onPointerUp(event)) return;
+      if (this.viewport && this.viewport.isTouchGestureActive()) return;
+    }
+
+    /** 取消进行中的本地笔划并清空相关状态。 */
+    _cancelActiveStroke() {
+      this.isDrawing = false;
+      this.activeDrawPointerId = null;
+      this.activeStrokeId = '';
+      this.lastPoint = null;
+      if (this.strokeSmoother) this.strokeSmoother.reset();
+      if (this.stage) this.stage.classList.remove('stylus-ready');
+      if (this.brushPreview) this.brushPreview.hide();
     }
 
     _bindToolbar() {
