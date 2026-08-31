@@ -50,7 +50,7 @@
         board_id: String(meta.board_id || boardId),
         title: String(meta.title || '画板').slice(0, 40),
         canvas: Object.assign(
-          { mode: 'vector', width: 960, height: 540 },
+          { mode: 'vector', width: 1920, height: 1080 },
           meta.canvas || {}
         ),
         layers,
@@ -102,7 +102,7 @@
       boards: boards.map(board => ({
         board_id: String(board.board_id || ''),
         title: String(board.title || '画板').slice(0, 40),
-        canvas: board.canvas || { mode: 'vector', width: 960, height: 540 },
+        canvas: board.canvas || { mode: 'vector', width: 1920, height: 1080 },
         layers: (board.layers || []).map(sanitizeLayer).filter(Boolean),
         strokes: (board.strokes || []).map(sanitizeStroke).filter(Boolean),
         created_at: Number(board.created_at || 0),

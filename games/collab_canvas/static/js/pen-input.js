@@ -54,14 +54,19 @@
       return false;
     }
 
-    strokeSize(event) {
+    /** 按压力值换算线宽；isStylus 为 false 时忽略压力返回基础线宽。 */
+    sizeForPressure(pressure, isStylus) {
       const base = this.getBaseSize();
-      if (!this.enabled || !this.isStylus(event)) return base;
-      let pressure = Number(event && event.pressure);
-      if (!Number.isFinite(pressure) || pressure <= 0) pressure = 0.28;
-      pressure = clamp(pressure, 0.08, 1);
-      const curved = Math.pow(pressure, 1 / clamp(this.sensitivity, 0.25, 2));
-      return clamp(Math.round(base * (0.15 + 0.85 * curved)), 1, 64);
+      if (!this.enabled || !isStylus) return base;
+      let value = Number(pressure);
+      if (!Number.isFinite(value) || value <= 0) value = 0.28;
+      value = clamp(value, 0.08, 1);
+      const curved = Math.pow(value, 1 / clamp(this.sensitivity, 0.25, 2));
+      return clamp(Math.round(base * (0.15 + 0.85 * curved)), 1, 128);
+    }
+
+    strokeSize(event) {
+      return this.sizeForPressure(Number(event && event.pressure), this.isStylus(event));
     }
 
     setEnabled(on) {

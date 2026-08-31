@@ -11,7 +11,7 @@
       this.getStage = settings.getStage || (() => null);
       this.getViewportScale = settings.getViewportScale || (() => 1);
       this.getCanvas = settings.getCanvas || (() => null);
-      this.getLogicalWidth = settings.getLogicalWidth || (() => 960);
+      this.getLogicalWidth = settings.getLogicalWidth || (() => 1920);
       this.getBrushSize = settings.getBrushSize || (() => 8);
       this.getTool = settings.getTool || (() => 'brush');
       this.isVisible = settings.isVisible || (() => true);
@@ -28,7 +28,7 @@
       if (!canvas) return Math.max(4, Number(brushSize) || 8);
       const layoutW = canvas.clientWidth;
       if (!layoutW) return Math.max(4, Number(brushSize) || 8);
-      const lw = Number(logicalWidth) || 960;
+      const lw = Number(logicalWidth) || 1920;
       const size = Number(brushSize) || 8;
       const lineWidth = size * (lw / 640);
       return Math.max(2, lineWidth * (layoutW / lw));

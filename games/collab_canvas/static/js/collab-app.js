@@ -171,10 +171,12 @@
     onActivity: active => stage && stage.classList.toggle('stylus-ready', active)
   });
 
+  const strokeSmoother = new StrokeSmoother();
+
   const cursorOverlay = new CursorOverlay(cursorLayer, {
     selfId,
     resolveLabelColor: (playerId, wireColor) => onlinePrefs.resolveLabelColor(playerId, wireColor),
-    getLogicalWidth: () => (boardController ? boardController.drawingBoard.logicalWidth : 960),
+    getLogicalWidth: () => (boardController ? boardController.drawingBoard.logicalWidth : 1920),
     getCanvas: () => canvas
   });
 
@@ -477,6 +479,7 @@
   settingsPanel = new SettingsPanel({
     colorPicker,
     penInput,
+    strokeSmoother,
     viewport: canvasViewport,
     shortcutManager,
     networkMonitor,
@@ -508,6 +511,7 @@
     colorPicker,
     colorPair,
     penInput,
+    strokeSmoother,
     recentColors,
     onlinePrefs,
     selfId,

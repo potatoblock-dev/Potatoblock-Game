@@ -328,68 +328,82 @@
     return { x: x1 + Math.cos(snapped) * len, y: y1 + Math.sin(snapped) * len };
   }
 
-  function brushDown(board, ctx) {
-    const { event } = ctx;
-    if (!board.canDraw) return false;
-    if (board._activeLayerLocked()) return false;
-    if (board.penInput.isStylus(event)) board.penInput.markPenActivity(event, true);
-    event.preventDefault();
-    board.canvas.setPointerCapture(event.pointerId);
-    board.activeDrawPointerId = event.pointerId;
-    board.isDrawing = true;
-    board.activeStrokeId = crypto.randomUUID();
-    board.activeStrokeTool = board.penInput.isPenEraser(event) ? 'eraser' : board.currentTool;
-    board.lastPoint = board.normalizedPoint(event);
-    if (board.recentColors) board.recentColors.push(board.currentColor);
-    board.stage.classList.add('stylus-ready');
-    return true;
+function brushDown(board, ctx) {
+  const { event } = ctx;
+  if (!board.canDraw) return false;
+  if (board._activeLayerLocked()) return false;
+  if (board.penInput.isStylus(event)) board.penInput.markPenActivity(event, true);
+  event.preventDefault();
+  board.canvas.setPointerCapture(event.pointerId);
+  board.activeDrawPointerId = event.pointerId;
+  board.isDrawing = true;
+  board.activeStrokeId = crypto.randomUUID();
+  board.activeStrokeTool = board.penInput.isPenEraser(event) ? 'eraser' : board.currentTool;
+  board.lastPoint = board.normalizedPoint(event);
+  if (board.strokeSmoother) {
+    board.strokeSmoother.reset();
+    const pressure = board.penInput.isStylus(event) ? Number(event.pressure) : null;
+    const out = board.strokeSmoother.push(board.lastPoint.x, board.lastPoint.y, pressure);
+    if (out) board.lastPoint = out;
   }
+  if (board.recentColors) board.recentColors.push(board.currentColor);
+  board.stage.classList.add('stylus-ready');
+  return true;
+}
 
-  function brushMove(board, ctx) {
-    const { event } = ctx;
-    const pt = board.normalizedPoint(event);
-    board._sendCursor(board.activeBoardId, pt.x, pt.y, board.isDrawing);
-    if (!board.isDrawing || event.pointerId !== board.activeDrawPointerId) return false;
-    if (board.penInput.shouldIgnorePointer(event, board.activeDrawPointerId)) return false;
-    if (board.penInput.isStylus(event)) board.penInput.markPenActivity(event, true);
-    event.preventDefault();
-    if (!board.lastPoint) {
-      board.lastPoint = pt;
-      return true;
-    }
-    const dx = pt.x - board.lastPoint.x;
-    const dy = pt.y - board.lastPoint.y;
-    const minDist = 0.5 / Math.max(board.drawingBoard.logicalWidth, 1);
-    if (dx * dx + dy * dy < minDist * minDist) return true;
-    const segment = {
-      x1: board.lastPoint.x,
-      y1: board.lastPoint.y,
-      x2: pt.x,
-      y2: pt.y,
-      color: board.currentColor,
-      size: board.penInput.strokeSize(event),
-      tool: board.activeStrokeTool === 'eraser' ? 'eraser' : 'brush'
-    };
-    board._appendLocalSegment(board.activeStrokeId, segment);
+function brushMove(board, ctx) {
+  const { event } = ctx;
+  const pt = board.normalizedPoint(event);
+  board._sendCursor(board.activeBoardId, pt.x, pt.y, board.isDrawing);
+  if (!board.isDrawing || event.pointerId !== board.activeDrawPointerId) return false;
+  if (board.penInput.shouldIgnorePointer(event, board.activeDrawPointerId)) return false;
+  if (board.penInput.isStylus(event)) board.penInput.markPenActivity(event, true);
+  event.preventDefault();
+  if (!board.lastPoint) {
     board.lastPoint = pt;
     return true;
   }
-
-  function brushUp(board, ctx) {
-    const { event } = ctx;
-    if (event.pointerId !== board.activeDrawPointerId) return false;
-    if (board.penInput.isStylus(event)) board.penInput.clearPenPointer(event);
-    board.isDrawing = false;
-    board.activeDrawPointerId = null;
-    board.activeStrokeId = '';
-    board.lastPoint = null;
-    board.stage.classList.remove('stylus-ready');
-    board.adapter.flushSegments();
-    board._redraw();
-    const pt = board.normalizedPoint(event);
-    board._sendCursor(board.activeBoardId, pt.x, pt.y, false);
-    return true;
+  let drawPt = pt;
+  if (board.strokeSmoother) {
+    const pressure = board.penInput.isStylus(event) ? Number(event.pressure) : null;
+    const out = board.strokeSmoother.push(pt.x, pt.y, pressure);
+    if (!out) return true;
+    drawPt = out;
   }
+  const dx = drawPt.x - board.lastPoint.x;
+  const dy = drawPt.y - board.lastPoint.y;
+  const minDist = 0.5 / Math.max(board.drawingBoard.logicalWidth, 1);
+  if (dx * dx + dy * dy < minDist * minDist) return true;
+  const segment = {
+    x1: board.lastPoint.x,
+    y1: board.lastPoint.y,
+    x2: drawPt.x,
+    y2: drawPt.y,
+    color: board.currentColor,
+    size: board.penInput.sizeForPressure(drawPt.pressure, drawPt.pressure != null),
+    tool: board.activeStrokeTool === 'eraser' ? 'eraser' : 'brush'
+  };
+  board._appendLocalSegment(board.activeStrokeId, segment);
+  board.lastPoint = drawPt;
+  return true;
+}
+
+function brushUp(board, ctx) {
+  const { event } = ctx;
+  if (event.pointerId !== board.activeDrawPointerId) return false;
+  if (board.penInput.isStylus(event)) board.penInput.clearPenPointer(event);
+  board.isDrawing = false;
+  board.activeDrawPointerId = null;
+  board.activeStrokeId = '';
+  board.lastPoint = null;
+  if (board.strokeSmoother) board.strokeSmoother.reset();
+  board.stage.classList.remove('stylus-ready');
+  board.adapter.flushSegments();
+  board._redraw();
+  const pt = board.normalizedPoint(event);
+  board._sendCursor(board.activeBoardId, pt.x, pt.y, false);
+  return true;
+}
 
   global.registerCollabTools = registerCollabTools;
 })(window);

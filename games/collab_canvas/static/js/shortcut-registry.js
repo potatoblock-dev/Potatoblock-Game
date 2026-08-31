@@ -32,6 +32,7 @@
     selectionFill: { label: '填充选区', category: 'tools', bindings: ['Mod+Delete', ''] },
     brushSizeUp: { label: '增大笔刷', category: 'brush', bindings: ['BracketRight', ''] },
     brushSizeDown: { label: '减小笔刷', category: 'brush', bindings: ['BracketLeft', ''] },
+    debounceBoost: { label: '切换最高防抖', category: 'brush', bindings: ['', ''] },
     zoomIn: { label: '放大视图', category: 'view', bindings: ['Mod+Equal', ''] },
     zoomOut: { label: '缩小视图', category: 'view', bindings: ['Mod+Minus', ''] },
     resetView: { label: '重置视图', category: 'view', bindings: ['Digit0', ''] },

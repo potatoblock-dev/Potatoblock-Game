@@ -20,6 +20,7 @@
       this.panes = this.modal ? this.modal.querySelectorAll('[data-settings-pane]') : [];
       this.colorPicker = settings.colorPicker || null;
       this.penInput = settings.penInput || null;
+      this.strokeSmoother = settings.strokeSmoother || null;
       this.getBrushSize = settings.getBrushSize || (() => 8);
       this.getBrushColor = settings.getBrushColor || (() => '#111827');
       this.viewport = settings.viewport || null;
@@ -64,6 +65,23 @@
         getColor: () => this.getBrushColor(),
         pressureEl: this.penTestPressure
       }) : null;
+      this.debounceToggle = this.modal && this.modal.querySelector('#settingsDebounce');
+      this.debounceLevel = this.modal && this.modal.querySelector('#settingsDebounceLevel');
+      this.debounceLevelOut = this.modal && this.modal.querySelector('#settingsDebounceLevelOut');
+      this.debounceTestCanvas = this.modal && this.modal.querySelector('#debounceTestCanvas');
+      this.debounceTestPressure = this.modal && this.modal.querySelector('[data-debounce-test-pressure]');
+      this.debounceTestPad = this.debounceTestCanvas ? new PenTestPad(this.debounceTestCanvas, {
+        penInput: this.penInput,
+        strokeSmoother: this.strokeSmoother,
+        getBaseSize: () => this.getBrushSize(),
+        getColor: () => this.getBrushColor(),
+        pressureEl: this.debounceTestPressure
+      }) : null;
+      if (this.strokeSmoother) {
+        this.strokeSmoother.onBoostChange = () => {
+          if (this.debounceTestPad) this.debounceTestPad.refreshStatus();
+        };
+      }
 
       this._bindModal();
       this._bindTabs();
@@ -107,6 +125,7 @@
       if (!this.modal) return;
       this.modal.classList.add('hidden');
       if (this.penTestPad) this.penTestPad.deactivate();
+      if (this.debounceTestPad) this.debounceTestPad.deactivate();
       if (this.shortcutManager) this.shortcutManager.cancelCapture();
       if (this.networkMonitor) this.networkMonitor.setActive(false);
     }
@@ -162,6 +181,10 @@
       if (this.penTestPad) {
         if (tabId === 'peripheral') this.penTestPad.activate();
         else this.penTestPad.deactivate();
+      }
+      if (this.debounceTestPad) {
+        if (tabId === 'peripheral') this.debounceTestPad.activate();
+        else this.debounceTestPad.deactivate();
       }
       if (tabId === 'shortcuts') this._renderShortcuts();
     }
@@ -303,7 +326,7 @@
       }
     }
 
-    /** 外设 Tab：笔压开关、灵敏度与本地测试画板。 */
+    /** 外设 Tab：笔压开关、灵敏度、防抖设置与本地测试画板。 */
     _bindPeripheral() {
       if (this.penToggle && this.penInput) {
         this.penToggle.checked = this.penInput.enabled;
@@ -319,6 +342,34 @@
           if (this.penSensOut) this.penSensOut.textContent = this.penSens.value + '%';
         });
       }
+      if (!this.strokeSmoother) return;
+      const syncDebounce = () => {
+        if (this.debounceToggle) this.debounceToggle.checked = this.strokeSmoother.enabled;
+        if (this.debounceLevel) {
+          this.debounceLevel.disabled = !this.strokeSmoother.enabled;
+          this.debounceLevel.value = String(this.strokeSmoother.level);
+        }
+        if (this.debounceLevelOut) {
+          this.debounceLevelOut.textContent = this.strokeSmoother.enabled
+            ? String(this.strokeSmoother.level)
+            : '—';
+        }
+      };
+      if (this.debounceToggle) {
+        this.debounceToggle.addEventListener('change', () => {
+          this.strokeSmoother.setEnabled(this.debounceToggle.checked);
+          syncDebounce();
+          if (this.debounceTestPad) this.debounceTestPad.refreshStatus();
+        });
+      }
+      if (this.debounceLevel) {
+        this.debounceLevel.addEventListener('input', () => {
+          this.strokeSmoother.setLevel(Number(this.debounceLevel.value));
+          if (this.debounceLevelOut) this.debounceLevelOut.textContent = String(this.strokeSmoother.level);
+          if (this.debounceTestPad) this.debounceTestPad.refreshStatus();
+        });
+      }
+      syncDebounce();
     }
 
     _renderShortcuts() {

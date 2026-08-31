@@ -18,8 +18,8 @@ LAYER_KIND_GROUP = "group"
 VALID_LAYER_KINDS = {LAYER_KIND_PAINT, LAYER_KIND_GROUP}
 VALID_TOOLS = {"brush", "eraser", "fill", "background", "line", "rect", "ellipse", "gradient"}
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
-VECTOR_CANVAS_WIDTH = 960
-VECTOR_CANVAS_HEIGHT = 540
+VECTOR_CANVAS_WIDTH = 1920
+VECTOR_CANVAS_HEIGHT = 1080
 PIXEL_CANVAS_MIN = 2
 PIXEL_CANVAS_MAX = 128
 DEFAULT_PIXEL_SIZE = 32
@@ -96,12 +96,12 @@ def _hex_color(value: object) -> str:
 
 
 def _stroke_size(value: object, default: float = 5.0) -> float:
-    """笔刷/线宽：1–64，最多两位小数。"""
+    """笔刷/线宽：1–128，最多两位小数。"""
     try:
         size = round(float(value), 2)
     except (TypeError, ValueError):
         size = default
-    return max(1.0, min(64.0, size))
+    return max(1.0, min(128.0, size))
 
 
 def normalize_segment(data: Dict) -> Dict[str, object]:

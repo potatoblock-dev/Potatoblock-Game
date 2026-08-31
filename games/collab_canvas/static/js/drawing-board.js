@@ -29,8 +29,8 @@
       const settings = options || {};
       this.canvas = canvas;
       this.context = canvas.getContext('2d', { willReadFrequently: true });
-      this.logicalWidth = Number(settings.width) || 960;
-      this.logicalHeight = Number(settings.height) || 540;
+      this.logicalWidth = Number(settings.width) || 1920;
+      this.logicalHeight = Number(settings.height) || 1080;
       this._buffer = document.createElement('canvas');
       this._buffer.width = this.logicalWidth;
       this._buffer.height = this.logicalHeight;
@@ -66,8 +66,8 @@
         this.logicalWidth = clamp(Math.round(Number(width) || 32), 2, 128);
         this.logicalHeight = clamp(Math.round(Number(height) || 32), 2, 128);
       } else {
-        this.logicalWidth = 960;
-        this.logicalHeight = 540;
+        this.logicalWidth = 1920;
+        this.logicalHeight = 1080;
       }
       this.maxFillOperations = this.logicalWidth * this.logicalHeight * 6;
       this.canvas.width = this.logicalWidth;
@@ -120,7 +120,7 @@
     stampPixelStroke(context, x1, y1, x2, y2, size, color, eraser) {
       const width = this.logicalWidth;
       const height = this.logicalHeight;
-      const brush = clamp(Math.round(Number(size) || 1), 1, 64);
+      const brush = clamp(Math.round(Number(size) || 1), 1, 128);
       const half = Math.floor((brush - 1) / 2);
       let col1 = clamp(Math.floor(x1 * width), 0, width - 1);
       let row1 = clamp(Math.floor(y1 * height), 0, height - 1);
@@ -159,7 +159,7 @@
       if (!this.pixelMode || !context) return;
       const width = this.logicalWidth;
       const height = this.logicalHeight;
-      const brush = clamp(Math.round(Number(size) || 1), 1, 64);
+      const brush = clamp(Math.round(Number(size) || 1), 1, 128);
       const half = Math.floor((brush - 1) / 2);
       const col = clamp(Math.floor(unitNumber(x) * width), 0, width - 1);
       const row = clamp(Math.floor(unitNumber(y) * height), 0, height - 1);
@@ -239,7 +239,7 @@
       const y1 = unitNumber(segment.y1) * this.logicalHeight;
       const x2 = unitNumber(segment.x2) * this.logicalWidth;
       const y2 = unitNumber(segment.y2) * this.logicalHeight;
-      const lineWidth = clamp(Number(segment.size) || 5, 1, 64) * (this.logicalWidth / 640);
+      const lineWidth = clamp(Number(segment.size) || 5, 1, 128) * (this.logicalWidth / 640);
       const composite = tool === 'eraser' ? 'destination-out' : 'source-over';
       const paint = context => {
         context.save();

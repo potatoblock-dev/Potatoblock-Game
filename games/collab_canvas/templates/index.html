@@ -104,7 +104,7 @@
                 <div id="canvasZoomBadge" class="canvas-zoom-badge hidden" aria-live="polite">100%</div>
                 <div id="canvasStage" class="canvas-stage">
                   <div id="canvasStageSurface" class="canvas-stage-surface">
-                    <canvas id="drawCanvas" width="960" height="540"></canvas>
+                    <canvas id="drawCanvas" width="1920" height="1080"></canvas>
                     <div id="cursorLayer"></div>
                   </div>
                 </div>
@@ -125,9 +125,9 @@
                     </div>
                     <label class="brush-size-row">
                       <span class="brush-size-label">粗细</span>
-                      <input id="brushSize" type="range" min="1" max="64" step="0.01" value="8">
+                      <input id="brushSize" type="range" min="1" max="128" step="0.01" value="8">
                       <span class="brush-size-value">
-                        <input id="brushSizeNumber" class="brush-size-number" type="number" min="1" max="64" step="0.01" value="8" inputmode="decimal" aria-label="笔刷粗细（px）">
+                        <input id="brushSizeNumber" class="brush-size-number" type="number" min="1" max="128" step="0.01" value="8" inputmode="decimal" aria-label="笔刷粗细（px）">
                         <span class="brush-size-unit" aria-hidden="true">px</span>
                       </span>
                     </label>
@@ -266,10 +266,29 @@
               </label>
             </section>
             <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>笔刷防抖</span></h3>
+              <p class="settings-hint">平滑笔画轨迹，减少手抖与折角；级数越高越平滑，跟手程度略降。</p>
+              <label class="settings-row settings-row-check">
+                <input id="settingsDebounce" type="checkbox"> 启用防抖
+              </label>
+              <label class="settings-row">
+                <span class="settings-row-label">防抖级数</span>
+                <input id="settingsDebounceLevel" type="range" min="1" max="5" step="1" value="2">
+                <output id="settingsDebounceLevelOut">2</output>
+              </label>
+            </section>
+            <section class="settings-subsection">
               <h3 class="settings-subsection-head"><span>笔压测试</span></h3>
               <div class="pen-test-wrap">
                 <canvas id="penTestCanvas" class="pen-test-canvas" width="480" height="200" aria-label="笔压测试画板"></canvas>
                 <p class="settings-hint pen-test-pressure" data-pen-test-pressure></p>
+              </div>
+            </section>
+            <section class="settings-subsection">
+              <h3 class="settings-subsection-head"><span>防抖测试</span></h3>
+              <div class="pen-test-wrap">
+                <canvas id="debounceTestCanvas" class="pen-test-canvas" width="480" height="200" aria-label="防抖测试画板"></canvas>
+                <p class="settings-hint pen-test-pressure" data-debounce-test-pressure></p>
               </div>
             </section>
           </div>
@@ -363,6 +382,7 @@
   <script src="{{ cc('js/drawing-board.js') }}"></script>
   <script src="{{ cc('js/collab-board-adapter.js') }}"></script>
   <script src="{{ cc('js/pen-input.js') }}"></script>
+  <script src="{{ cc('js/stroke-smoother.js') }}"></script>
   <script src="{{ cc('js/pen-test-pad.js') }}"></script>
   <script src="{{ cc('js/online-prefs.js') }}"></script>
   <script src="{{ cc('js/brush-preview.js') }}"></script>

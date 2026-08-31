@@ -11,6 +11,7 @@
       this.canvas = canvas;
       this.ctx = canvas ? canvas.getContext('2d') : null;
       this.penInput = settings.penInput || null;
+      this.strokeSmoother = settings.strokeSmoother || null;
       this.getBaseSize = settings.getBaseSize || (() => 8);
       this.getColor = settings.getColor || (() => '#111827');
       this.pressureEl = settings.pressureEl || null;
@@ -36,8 +37,14 @@
       this._drawing = false;
       this._pointerId = null;
       this._lastPoint = null;
+      if (this.strokeSmoother) this.strokeSmoother.reset();
       this._cancelClear();
       this.clear();
+    }
+
+    /** 供外部（设置变更 / 动态防抖切换）刷新状态标签。 */
+    refreshStatus() {
+      this._updatePressureLabel(null, this.penInput ? this.penInput.strokeSize(null) : this.getBaseSize());
     }
 
     /** 立即清空测试画板。 */
@@ -74,7 +81,14 @@
       this.canvas.setPointerCapture(event.pointerId);
       this._drawing = true;
       this._pointerId = event.pointerId;
-      this._lastPoint = this._normalizedPoint(event);
+      const point = this._normalizedPoint(event);
+      this._lastPoint = point;
+      if (this.strokeSmoother) {
+        this.strokeSmoother.reset();
+        const pressure = this.penInput.isStylus(event) ? Number(event.pressure) : null;
+        const out = this.strokeSmoother.push(point.x, point.y, pressure);
+        if (out) this._lastPoint = out;
+      }
       if (this.penInput.isStylus(event)) this.penInput.markPenActivity(event, true);
       this._updatePressureLabel(event, this.penInput.strokeSize(event));
     }
@@ -83,11 +97,19 @@
       if (!this._active || !this._drawing || event.pointerId !== this._pointerId) return;
       event.preventDefault();
       const point = this._normalizedPoint(event);
-      const size = this.penInput.strokeSize(event);
-      if (this._lastPoint) {
-        this._drawSegment(this._lastPoint, point, size, this.getColor());
+      let size;
+      if (this.strokeSmoother) {
+        const pressure = this.penInput.isStylus(event) ? Number(event.pressure) : null;
+        const out = this.strokeSmoother.push(point.x, point.y, pressure);
+        if (!out) return;
+        size = this.penInput.sizeForPressure(out.pressure, out.pressure != null);
+        if (this._lastPoint) this._drawSegment(this._lastPoint, out, size, this.getColor());
+        this._lastPoint = out;
+      } else {
+        size = this.penInput.strokeSize(event);
+        if (this._lastPoint) this._drawSegment(this._lastPoint, point, size, this.getColor());
+        this._lastPoint = point;
       }
-      this._lastPoint = point;
       if (this.penInput.isStylus(event)) this.penInput.markPenActivity(event, true);
       this._updatePressureLabel(event, size);
     }
@@ -98,6 +120,7 @@
       this._drawing = false;
       this._pointerId = null;
       this._lastPoint = null;
+      if (this.strokeSmoother) this.strokeSmoother.reset();
       if (this.penInput.isStylus(event)) this.penInput.clearPenPointer(event);
       this._scheduleClear();
     }
@@ -125,14 +148,17 @@
 
     _updatePressureLabel(event, size) {
       if (!this.pressureEl) return;
+      const debounceText = this.strokeSmoother
+        ? ' · 防抖 ' + this.strokeSmoother.statusLabel()
+        : '';
       if (!event || !this.penInput.isStylus(event)) {
-        this.pressureEl.textContent = '无笔压输入 · 线宽 ' + size + ' px';
+        this.pressureEl.textContent = '无笔压输入 · 线宽 ' + size + ' px' + debounceText;
         return;
       }
       let pressure = Number(event.pressure);
       if (!Number.isFinite(pressure) || pressure <= 0) pressure = 0;
       this.pressureEl.textContent =
-        '压感 ' + pressure.toFixed(2) + ' · 线宽 ' + size + ' px';
+        '压感 ' + pressure.toFixed(2) + ' · 线宽 ' + size + ' px' + debounceText;
     }
 
     _scheduleClear() {

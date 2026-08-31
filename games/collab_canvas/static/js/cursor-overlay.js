@@ -12,7 +12,7 @@
       this.container = container;
       this.selfId = settings.selfId || '';
       this.resolveLabelColor = settings.resolveLabelColor || ((id, wire) => defaultLabelColor(id));
-      this.getLogicalWidth = settings.getLogicalWidth || (() => 960);
+      this.getLogicalWidth = settings.getLogicalWidth || (() => 1920);
       this.getCanvas = settings.getCanvas || (() => null);
       this.cursors = new Map();
       this._raf = null;

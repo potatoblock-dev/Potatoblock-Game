@@ -2,7 +2,7 @@
   'use strict';
 
   const BRUSH_MIN = 1;
-  const BRUSH_MAX = 64;
+  const BRUSH_MAX = 128;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   /** 笔刷粗细：保留两位小数并限制在合法区间。 */
@@ -41,10 +41,11 @@
       this.popupPalette = settings.popupPalette || null;
       this.recentColors = settings.recentColors || null;
       this.penInput = settings.penInput;
+      this.strokeSmoother = settings.strokeSmoother || null;
       this.onlinePrefs = settings.onlinePrefs || null;
       this.onRoomChange = settings.onRoomChange || (() => {});
 
-      this.drawingBoard = new DrawingBoard(this.canvas, { width: 960, height: 540 });
+      this.drawingBoard = new DrawingBoard(this.canvas, { width: 1920, height: 1080 });
       this.adapter = new CollabBoardAdapter({
         send: payload => this.session.send(payload),
         getBoardId: () => this.activeBoardId,
@@ -258,6 +259,9 @@
           return;
         case 'brushSizeDown':
           this._adjustBrushSize(-1);
+          return;
+        case 'debounceBoost':
+          if (this.strokeSmoother) this.strokeSmoother.setBoost(!this.strokeSmoother.boost);
           return;
         case 'zoomIn':
           this._zoomAtCenter(true);

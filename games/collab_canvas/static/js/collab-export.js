@@ -59,8 +59,8 @@
   async function strokesToRgba(strokes, canvasSpec, layersMeta, options) {
     const opts = options || {};
     const spec = canvasSpec || {};
-    const width = Number(spec.width) || 960;
-    const height = Number(spec.height) || 540;
+    const width = Number(spec.width) || 1920;
+    const height = Number(spec.height) || 1080;
     const offscreen = document.createElement('canvas');
     const board = new DrawingBoard(offscreen, {
       width,
@@ -87,8 +87,8 @@
   /** 按图层拆分 strokes 并分别渲染（用于分层 KRA）。 */
   async function layersToRgbaList(strokes, canvasSpec, layersMeta) {
     const spec = canvasSpec || {};
-    const width = Number(spec.width) || 960;
-    const height = Number(spec.height) || 540;
+    const width = Number(spec.width) || 1920;
+    const height = Number(spec.height) || 1080;
     const layers = (layersMeta && layersMeta.length ? layersMeta : defaultLayerStack())
       .slice()
       .sort((a, b) => (a.order || 0) - (b.order || 0));
