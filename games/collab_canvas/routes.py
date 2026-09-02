@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import random
 import time
 import uuid
@@ -15,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from app.error_codes import create_error_code
 from app.games.collab_canvas.protocol import (
     BOARD_CREATE_COOLDOWN_SEC,
+    BOARD_CREATE_OWNER_COOLDOWN_SEC,
     DEFAULT_BOARD_ID,
     DEFAULT_LAYER_ID,
     DISCONNECT_GRACE_SECONDS,
@@ -70,7 +72,7 @@ GAME_DIR = Path(__file__).resolve().parent
 GAME_ID = "collab_canvas"
 STATIC_URL = "/static/games/collab-canvas"
 # 静态资源 ?v= 版本号；改 JS/CSS 后递增以便生产绕过浏览器缓存。
-COLLAB_ASSET_VERSION = "20260831d"
+COLLAB_ASSET_VERSION = "20260901r"
 
 game_info = {
     "id": GAME_ID,
@@ -78,6 +80,7 @@ game_info = {
     "logo": "/static/img/logo.svg",
     "url": "/collab-canvas",
     "menu_order": 15,
+    "category": "tool",
     "router": router,
     "static_dir": GAME_DIR / "static",
     "static_url": STATIC_URL,
@@ -95,7 +98,7 @@ def is_valid_room_path_id(room_id: str) -> bool:
     return is_valid_deep_link_room_id(room_id, RESERVED_SEGMENTS)
 
 
-def create_board(title: str, board_id: Optional[str] = None, created_by: Optional[str] = None) -> Dict:
+def create_board(title: str, board_id: Optional[str] = None, created_by: Optional[str] = None, canvas: Optional[Dict] = None) -> Dict:
     """创建一块独立画板的状态容器。"""
     return {
         "board_id": board_id or ("b_" + uuid.uuid4().hex[:10]),
@@ -103,7 +106,8 @@ def create_board(title: str, board_id: Optional[str] = None, created_by: Optiona
         "layers": default_layers(),
         "strokes": default_background_strokes(),
         "redo": {},
-        "canvas": default_vector_canvas(),
+        "canvas": canvas or default_vector_canvas(),
+        "annotations": [],
         "created_at": time.time(),
         "created_by": created_by,
     }
@@ -228,6 +232,65 @@ def top_layer_id(board: Dict) -> str:
     return str(layers[-1]["layer_id"])
 
 
+ANNOTATION_MODES = {"pinned", "hover"}
+ANNOTATION_DIRECTIONS = {"br", "bl", "tr", "tl"}
+ANNOTATION_TEXT_MAX = 2000
+
+
+def _norm_unit(value: object) -> float:
+    """转归一化坐标并夹到 0-1。"""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("坐标无效")
+    return max(0.0, min(1.0, number))
+
+
+def sanitize_annotation(data: object) -> Optional[Dict[str, object]]:
+    """校验并规范化一条批注；非法返回 None。"""
+    if not isinstance(data, dict):
+        return None
+    try:
+        x = _norm_unit(data.get("x"))
+        y = _norm_unit(data.get("y"))
+    except (TypeError, ValueError):
+        return None
+    mode = str(data.get("mode") or "hover")
+    if mode not in ANNOTATION_MODES:
+        mode = "hover"
+    direction = str(data.get("direction") or "br")
+    if direction not in ANNOTATION_DIRECTIONS:
+        direction = "br"
+    text = str(data.get("text") or "")[:ANNOTATION_TEXT_MAX]
+    return {
+        "id": str(data.get("id") or uuid.uuid4().hex[:10]),
+        "x": x,
+        "y": y,
+        "mode": mode,
+        "direction": direction,
+        "text": text,
+        "created_by": str(data.get("created_by") or ""),
+        "created_at": float(data.get("created_at") or time.time()),
+    }
+
+
+def sanitize_annotations(value: object) -> List[Dict[str, object]]:
+    """规范化批注列表。"""
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        ann = sanitize_annotation(item)
+        if ann:
+            out.append(ann)
+    return out
+
+
+def serialize_annotations(board: Dict) -> List[Dict[str, object]]:
+    """返回画板批注的 wire 表示。"""
+    ensure_board(board)
+    return sanitize_annotations(board.get("annotations") or [])
+
+
 def build_drawing_sync(board: Dict, board_id: str) -> Dict[str, object]:
     """构造单画板快照（含图层）。"""
     ensure_board(board)
@@ -237,6 +300,7 @@ def build_drawing_sync(board: Dict, board_id: str) -> Dict[str, object]:
         "layers": serialize_layers(board.get("layers") or []),
         "strokes": serialize_strokes(board.get("strokes") or []),
         "canvas": serialize_canvas(board.get("canvas") or default_vector_canvas()),
+        "annotations": serialize_annotations(board),
     }
 
 
@@ -281,6 +345,7 @@ def build_room_state(room: Dict, player_id: str, *, include_strokes: bool = True
         "active_layer_id": active_layer,
         "layers": serialize_layers(board.get("layers") or []),
         "canvas": serialize_canvas(board.get("canvas") or default_vector_canvas()),
+        "annotations": serialize_annotations(board),
         "last_board_create_at": float(pdata.get("last_board_create_at") or 0),
     }
     if include_strokes:
@@ -844,22 +909,29 @@ async def collab_websocket(websocket: WebSocket):
                     await send_error(websocket, "画板数量已达上限")
                     continue
                 is_owner = room.get("owner_id") == player_id
-                if not is_owner:
-                    last_at = float(pdata.get("last_board_create_at") or 0)
-                    elapsed = time.time() - last_at
-                    if last_at > 0 and elapsed < BOARD_CREATE_COOLDOWN_SEC:
-                        remain = int(BOARD_CREATE_COOLDOWN_SEC - elapsed + 0.999)
-                        await send_error(
-                            websocket,
-                            f"创建画板冷却中，请 {remain} 秒后再试",
-                        )
-                        continue
+                # 房主 3 秒短冷却（防止快速重复提交），房客 60 秒冷却。
+                cooldown = BOARD_CREATE_OWNER_COOLDOWN_SEC if is_owner else BOARD_CREATE_COOLDOWN_SEC
+                last_at = float(pdata.get("last_board_create_at") or 0)
+                elapsed = time.time() - last_at
+                if last_at > 0 and elapsed < cooldown:
+                    remain = int(cooldown - elapsed + 0.999)
+                    await send_error(
+                        websocket,
+                        f"创建画板冷却中，请 {remain} 秒后再试",
+                    )
+                    continue
                 title = str(data.get("title") or f"画板 {len(room['board_order']) + 1}")[:40]
-                board = create_board(title, created_by=player_id)
+                canvas_spec = None
+                if isinstance(data.get("canvas"), dict):
+                    try:
+                        canvas_spec = normalize_canvas_mode(data["canvas"])
+                    except ValueError as exc:
+                        await send_error(websocket, str(exc))
+                        continue
+                board = create_board(title, created_by=player_id, canvas=canvas_spec)
                 room["boards"][board["board_id"]] = board
                 room["board_order"].append(board["board_id"])
-                if not is_owner:
-                    pdata["last_board_create_at"] = time.time()
+                pdata["last_board_create_at"] = time.time()
                 payload = {
                     "type": "board_added",
                     "board_id": board["board_id"],
@@ -890,6 +962,62 @@ async def collab_websocket(websocket: WebSocket):
                     },
                     exclude_id=player_id,
                 )
+                continue
+
+            if msg_type == "annotation_add":
+                board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
+                board = get_board(room, board_id)
+                if not board:
+                    await send_error(websocket, "画板不存在")
+                    continue
+                ann = sanitize_annotation(data)
+                if not ann:
+                    await send_error(websocket, "批注数据无效")
+                    continue
+                ann["created_by"] = player_id
+                board.setdefault("annotations", []).append(ann)
+                await broadcast_to_board(room_id, board_id, {"type": "annotation_added", "annotation": ann})
+                continue
+
+            if msg_type == "annotation_update":
+                board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
+                board = get_board(room, board_id)
+                if not board:
+                    await send_error(websocket, "画板不存在")
+                    continue
+                ann_id = str(data.get("annotation_id") or "")
+                ann = next((a for a in (board.get("annotations") or []) if str(a.get("id")) == ann_id), None)
+                if not ann:
+                    await send_error(websocket, "批注不存在")
+                    continue
+                patch = sanitize_annotation(
+                    {
+                        "id": ann_id,
+                        "x": data.get("x", ann.get("x")),
+                        "y": data.get("y", ann.get("y")),
+                        "mode": data.get("mode", ann.get("mode")),
+                        "direction": data.get("direction", ann.get("direction")),
+                        "text": data.get("text", ann.get("text")),
+                        "created_by": player_id,
+                        "created_at": ann.get("created_at"),
+                    }
+                )
+                if not patch:
+                    await send_error(websocket, "批注数据无效")
+                    continue
+                ann.update(patch)
+                await broadcast_to_board(room_id, board_id, {"type": "annotation_updated", "annotation": ann})
+                continue
+
+            if msg_type == "annotation_delete":
+                board_id = str(data.get("board_id") or pdata.get("active_board_id", DEFAULT_BOARD_ID))
+                board = get_board(room, board_id)
+                if not board:
+                    await send_error(websocket, "画板不存在")
+                    continue
+                ann_id = str(data.get("annotation_id") or "")
+                board["annotations"] = [a for a in (board.get("annotations") or []) if str(a.get("id")) != ann_id]
+                await broadcast_to_board(room_id, board_id, {"type": "annotation_deleted", "annotation_id": ann_id})
                 continue
 
             if msg_type == "room_import":

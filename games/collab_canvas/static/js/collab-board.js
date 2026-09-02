@@ -54,6 +54,7 @@
 
       this.selfId = settings.selfId || '';
       this.strokes = [];
+      this.annotations = [];
       this.layersMeta = [];
       this.activeBoardId = 'b_default';
       this.activeLayerId = 'l_default';
@@ -86,6 +87,8 @@
       this._pbccSaveBusy = false;
       this._pbccRestorePending = false;
       this._pbccRestoreBoardCount = 0;
+      this.annotationLayer = null;
+      this._prevPaintTool = 'brush';
 
       this.toolController = new ToolController();
       this.toolController.attachBoard(this);
@@ -368,14 +371,46 @@
       }
     }
 
+    /** 从笔刷库选择一个预设：应用参数、切换 tool、记录最近使用。 */
+    applyBrushPreset(presetId) {
+      if (!this.brushPreset) return false;
+      if (!this.brushPreset.applyPreset(presetId)) return false;
+      this._setTool(this.brushPreset.tool);
+      if (global.BrushRecentStore) global.BrushRecentStore.instance.push(presetId);
+      return true;
+    }
+
+    /** 当前激活的预设 id（笔刷库高亮用）。 */
+    getActivePresetId() {
+      return this.brushPreset ? this.brushPreset.id : '';
+    }
+
+    /** 当前预设的不透明度（0-1）。 */
+    getBrushOpacity() {
+      return this.brushPreset && this.brushPreset.opacity != null ? this.brushPreset.opacity : 1;
+    }
+
+    /** 当前预设的流量（0-1）。 */
+    getBrushFlow() {
+      return this.brushPreset && this.brushPreset.flow != null ? this.brushPreset.flow : 1;
+    }
+
     _setTool(toolId) {
       const resolved = ToolRegistry.resolveTool(toolId, this.toolRail ? this.toolRail.variantStore : null);
       const prev = this.currentTool;
+      // 记录上一个画笔/绘制工具，供合作工具放置后切回。
+      const isCollab = resolved === 'annotation' || resolved === 'collabTool';
+      if (isCollab && prev && prev !== 'annotation' && prev !== 'collabTool') {
+        this._prevPaintTool = prev;
+      }
       this.currentTool = resolved;
       if (this.brushPreset && typeof STROKE_TOOLS !== 'undefined' && STROKE_TOOLS.has(resolved)) {
         this.brushPreset.setTool(resolved);
       }
-      if (this.toolRail) this.toolRail.setTool(resolved, { silent: true });
+      if (this.toolRail) {
+        const keepOpen = this.toolRail.brushLibrary && this.toolRail.brushLibrary.isOpen && STROKE_TOOLS.has(resolved);
+        this.toolRail.setTool(resolved, { silent: true, keepBrushLibraryOpen: keepOpen });
+      }
       if (this.stage) {
         this.stage.dataset.tool = resolved;
         this._applyToolCursor(resolved);
@@ -518,9 +553,8 @@
       return Boolean(this.selfId && this.ownerId && this.selfId === this.ownerId);
     }
 
-    /** 房客新建画板冷却剩余毫秒（房主无冷却）。 */
+    /** 新建画板冷却剩余毫秒（房主 3s 短冷却，房客 60s，防止快速重复创建）。 */
     boardCreateCooldownRemaining() {
-      if (this.isHost()) return 0;
       return Math.max(0, this._boardCreateCooldownUntil - Date.now());
     }
 
@@ -534,6 +568,112 @@
       this.boardPanel.setBoards(this.boardsMeta, this.boardOrder, this.activeBoardId);
     }
 
+    /** 根据画布规格（矢量尺寸）应用 drawingBoard 逻辑分辨率；pixel 模式沿用格子数。 */
+    _applyBoardCanvas(canvas) {
+      const spec = canvas || {};
+      const mode = spec.mode === 'pixel' ? 'pixel' : 'vector';
+      const width = spec.width != null ? Number(spec.width) : (mode === 'pixel' ? 32 : 1920);
+      const height = spec.height != null ? Number(spec.height) : (mode === 'pixel' ? 32 : 1080);
+      this.drawingBoard.setCanvasMode(mode, width, height);
+      this._syncAnnotations();
+    }
+
+    /** 通知批注层重绘（数据 / 坐标 / 尺寸变化时）。 */
+    _syncAnnotations() {
+      if (this.annotationLayer) {
+        this.annotationLayer.setAnnotations(this.annotations, this.getPlayersSnapshot());
+      }
+    }
+
+    /** 放置批注后收起合作工具侧栏，并切回上一个画笔工具。 */
+    closeCollabPanel() {
+      if (this.toolRail && this.toolRail.collabToolPanel && this.toolRail.collabToolPanel.isOpen) {
+        this.toolRail.collabToolPanel.close();
+      }
+      if (this.toolRail) this.toolRail._closeFlyout();
+      // 回到上一个画笔类工具，避免停留在 annotation/collabTool。
+      if (this._prevPaintTool) this._setTool(this._prevPaintTool);
+    }
+
+    /** 添加一条批注并广播（本地乐观插入，广播回来替换）。 */
+    addAnnotation(x, y) {
+      const local = {
+        id: 'local-' + Date.now(),
+        x: clamp(x, 0, 1),
+        y: clamp(y, 0, 1),
+        mode: 'hover',
+        direction: 'br',
+        text: '',
+        created_by: this.selfId,
+        created_at: Date.now()
+      };
+      this.annotations.push(local);
+      this._syncAnnotations();
+      const payload = {
+        type: 'annotation_add',
+        board_id: this.activeBoardId,
+        x: local.x,
+        y: local.y,
+        mode: local.mode,
+        direction: local.direction,
+        text: local.text
+      };
+      this.session.send(payload);
+    }
+
+    /** 更新一条批注并广播（本地乐观更新）。 */
+    updateAnnotation(annotationId, patch) {
+      const idx = this.annotations.findIndex(a => String(a.id) === String(annotationId));
+      if (idx >= 0) {
+        this.annotations[idx] = Object.assign({}, this.annotations[idx], patch);
+        this._syncAnnotations();
+      }
+      this.session.send(Object.assign(
+        { type: 'annotation_update', board_id: this.activeBoardId, annotation_id: annotationId },
+        patch
+      ));
+    }
+
+    /** 删除一条批注并广播（本地乐观移除）。 */
+    deleteAnnotation(annotationId) {
+      this.annotations = this.annotations.filter(a => String(a.id) !== String(annotationId));
+      this._syncAnnotations();
+      this.session.send({ type: 'annotation_delete', board_id: this.activeBoardId, annotation_id: annotationId });
+    }
+
+    /** 收到远端新增批注。 */
+    handleAnnotationAdded(data) {
+      if (data.board_id && data.board_id !== this.activeBoardId) return;
+      const ann = data.annotation;
+      if (!ann) return;
+      // 自己创建的本地乐观占位项（local- 前缀）用服务端真实项替换，避免重复。
+      if (String(ann.created_by) === String(this.selfId)) {
+        const lidx = this.annotations.findIndex(a => String(a.id).indexOf('local-') === 0);
+        if (lidx >= 0) this.annotations.splice(lidx, 1);
+      }
+      const idx = this.annotations.findIndex(a => String(a.id) === String(ann.id));
+      if (idx >= 0) this.annotations[idx] = ann;
+      else this.annotations.push(ann);
+      this._syncAnnotations();
+    }
+
+    /** 收到远端更新批注。 */
+    handleAnnotationUpdated(data) {
+      if (data.board_id && data.board_id !== this.activeBoardId) return;
+      const ann = data.annotation;
+      const idx = this.annotations.findIndex(a => String(a.id) === String(ann && ann.id));
+      if (idx >= 0) this.annotations[idx] = ann;
+      else if (ann) this.annotations.push(ann);
+      this._syncAnnotations();
+    }
+
+    /** 收到远端删除批注。 */
+    handleAnnotationDeleted(data) {
+      if (data.board_id && data.board_id !== this.activeBoardId) return;
+      this.annotations = this.annotations.filter(a => String(a.id) !== data.annotation_id);
+      this._syncAnnotations();
+    }
+
     handleRoomState(data) {
       this.selfId = data.self_id || this.selfId;
       this.ownerId = data.owner_id || '';
@@ -544,11 +684,18 @@
       this.boardsMeta = data.boards || [];
       this.boardOrder = data.board_order || this.boardsMeta.map(b => b.board_id);
       this.strokes = DrawingBoard.cloneStrokes(data.strokes || []);
+      this.annotations = (data.annotations || []).slice();
+      // 先同步玩家快照，批注层需要用它解析昵称/标签色。
+      this.setPlayersSnapshot(data.players);
       if (this.layerPanel) {
         this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
       }
+      // 应用当前活跃画板的画布尺寸（矢量自定义）。
+      const activeBoardMeta = (data.boards || []).find(b => b.board_id === this.activeBoardId);
+      this._applyBoardCanvas(activeBoardMeta && activeBoardMeta.canvas);
       this._refitCanvas();
       this._redraw();
+      this._syncAnnotations();
       if (!this.isHost() && data.last_board_create_at) {
         const cooldownMs = global.BOARD_CREATE_COOLDOWN_MS || 60000;
         const until = Math.floor(Number(data.last_board_create_at) * 1000) + cooldownMs;
@@ -559,7 +706,6 @@
       this._syncBoardPanel();
       this.onRoomChange(data);
       this._updateMemberCount(data.players);
-      this.setPlayersSnapshot(data.players);
     }
 
     /** 从 players 列表同步本客户端绘画/保存权限并更新 UI。 */
@@ -613,13 +759,23 @@
 
     handleDrawingSync(data) {
       if (data.board_id && data.board_id !== this.activeBoardId) return;
+      let canvasChanged = false;
+      if (data.canvas) {
+        this._applyBoardCanvas(data.canvas);
+        canvasChanged = true;
+      }
       if (data.layers) {
         this.layersMeta = this._coerceLayers(data.layers);
         const sorted = this.layersMeta.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
         if (sorted.length) this.activeLayerId = sorted[sorted.length - 1].layer_id;
       }
+      if (data.annotations) {
+        this.annotations = data.annotations.slice();
+        this._syncAnnotations();
+      }
       this.applyServerSnapshot(data.strokes || [], true);
       if (this.layerPanel) this.layerPanel.setLayers(this.layersMeta, this.activeLayerId);
+      if (canvasChanged) this._refitCanvas();
     }
 
     handleDrawMessage(data) {
@@ -1003,11 +1159,18 @@
         canvas: data.canvas
       });
       this.boardOrder.push(data.board_id);
-      if (data.created_by === this.selfId && !this.isHost()) {
-        this._boardCreateCooldownUntil = Date.now() + (global.BOARD_CREATE_COOLDOWN_MS || 60000);
-        if (this.boardPanel) this.boardPanel.notifyBoardCreated(false);
+      if (data.created_by === this.selfId) {
+        // 自己创建画板：房主短冷却(3s)防重复提交，房客 60s 冷却。
+        const ownerCooldown = global.BOARD_CREATE_OWNER_COOLDOWN_MS || 3000;
+        const cooldown = this.isHost() ? ownerCooldown : (global.BOARD_CREATE_COOLDOWN_MS || 60000);
+        this._boardCreateCooldownUntil = Date.now() + cooldown;
+        if (this.boardPanel) this.boardPanel.notifyBoardCreated(this.isHost());
       }
       this._syncBoardPanel();
+      // 自己创建画板后自动切换到新画板，让尺寸立即生效（房主/房客均适用）。
+      if (data.created_by === this.selfId && this.activeBoardId !== data.board_id) {
+        this.switchBoard(data.board_id);
+      }
     }
 
     handleBoardRemoved(data) {
@@ -1039,14 +1202,21 @@
       this.strokes = [];
       this.layersMeta = [];
       if (this.layerPanel) this.layerPanel.setLayers([], this.activeLayerId);
+      const targetMeta = this.boardsMeta.find(b => b.board_id === boardId);
+      this._applyBoardCanvas(targetMeta && targetMeta.canvas);
+      this._refitCanvas();
       this._redraw();
       this.session.send({ type: 'board_switch', board_id: boardId });
       if (this.boardPanel) this.boardPanel.setActive(boardId);
     }
 
-    createBoard() {
+    createBoard(canvas) {
       if (this.boardCreateCooldownRemaining() > 0) return;
-      this.session.send({ type: 'board_create' });
+      const payload = { type: 'board_create' };
+      if (canvas && canvas.width && canvas.height) {
+        payload.canvas = { mode: 'vector', width: Math.round(canvas.width), height: Math.round(canvas.height) };
+      }
+      this.session.send(payload);
     }
 
     renameBoard(boardId, title) {
@@ -1094,14 +1264,17 @@
         let strokes;
         let layers;
         let canvas = meta.canvas;
+        let annotations;
         if (boardId === this.activeBoardId) {
           strokes = DrawingBoard.cloneStrokes(this.strokes);
           layers = this.layersMeta.slice();
+          annotations = this.annotations.slice();
         } else {
           const sync = await this.session.requestBoardSync(boardId);
           strokes = sync.strokes || [];
           layers = sync.layers || [];
           canvas = sync.canvas || canvas;
+          annotations = sync.annotations || [];
         }
         boards.push({
           meta: {
@@ -1109,6 +1282,7 @@
             title: meta.title,
             canvas,
             layers,
+            annotations,
             created_at: meta.created_at,
             created_by: meta.created_by,
             exportOptions: this.canSave ? {} : {
@@ -1265,10 +1439,17 @@
         if (tool === 'rect' || tool === 'ellipse') segment.filled = !!data.filled;
         return segment;
       }
-      return {
+      const segment = {
         x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2,
         color: data.color, size: data.size, tool
       };
+      // 透传 perfect-freehand 新笔刷字段，保证远端渲染与本地一致。
+      if (Array.isArray(data.points) && data.points.length) segment.points = data.points;
+      if (data.strokePart) segment.strokePart = data.strokePart;
+      ['thinning', 'smoothing', 'streamline', 'opacity', 'flow', 'spacing', 'randomJitter'].forEach(key => {
+        if (data[key] != null) segment[key] = data[key];
+      });
+      return segment;
     }
 
     _appendRemoteSegment(ownerId, strokeId, segment, layerId) {

@@ -102,6 +102,79 @@
     html[data-theme='light'] .game-entry h2 { color: #0f172a !important; }
     html[data-theme='light'] .site-version { color: rgb(15 23 42 / .45) !important; opacity: 1 !important; }
 
+    /* 分类标签页（Tabs） */
+    .home-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid rgb(163 163 163 / .18);
+      padding-bottom: 0;
+    }
+    .home-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 18px;
+      margin-bottom: -1px;
+      font-size: 15px;
+      font-weight: 600;
+      color: inherit;
+      background: transparent;
+      border: 1px solid transparent;
+      border-bottom: 2px solid transparent;
+      border-radius: 10px 10px 0 0;
+      cursor: pointer;
+      opacity: .6;
+      transition: color .15s, opacity .15s, background .15s, border-color .15s;
+    }
+    .home-tab:hover { opacity: .9; }
+    .home-tab.is-active {
+      opacity: 1;
+      color: #f59e0b;
+      border-bottom-color: #f59e0b;
+      background: rgb(245 158 11 / .08);
+    }
+    html[data-theme='light'] .home-tab.is-active { color: #d97706; border-bottom-color: #d97706; background: rgb(217 119 6 / .08); }
+    .home-tab .tab-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
+      border-radius: 999px;
+      background: rgb(163 163 163 / .18);
+      color: inherit;
+    }
+    .home-tab.is-active .tab-count {
+      background: rgb(245 158 11 / .22);
+      color: #f59e0b;
+    }
+    html[data-theme='light'] .home-tab.is-active .tab-count { color: #d97706; }
+    /* Tab 面板切换 */
+    .home-tab-panel { animation: homeTabFade .22s ease; }
+    @keyframes homeTabFade {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 游戏/工具卡片 hover 动效：上浮 + 阴影 + 进入箭头滑入 */
+    .game-entry { overflow: hidden; }
+    .game-entry:hover .enter-arrow {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    .game-entry .game-thumb { transition: background-color .2s; }
+    .game-entry:hover .game-thumb {
+      background-color: rgb(163 163 163 / .12);
+    }
+    .game-entry h3 { transition: color .15s; }
+    .game-entry:hover h3 { color: #f59e0b; }
+    html[data-theme='light'] .game-entry:hover h3 { color: #d97706; }
+
     /* 系统设置 / 更新日志按钮 */
     .topbar-icon-btn {
       position: relative;
@@ -478,21 +551,65 @@
         {% endif %}
 
         {% if games %}
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {% for game in games %}
-            <a href="{{ game.url }}" class="game-entry block relative bg-gray-900 rounded-xl p-6 hover:bg-gray-800 transition-colors" data-game-name="{{ game.name }}">
-                {% if game.badge %}
-                <span class="absolute top-3 right-3 z-10 rounded-md px-2 py-0.5 text-xs font-semibold tracking-wide bg-amber-500/20 text-amber-300 border border-amber-400/40">{{ game.badge }}</span>
-                {% endif %}
-                <div class="w-full h-40 flex items-center justify-center rounded-lg bg-gray-800 mb-4">
-                    {% if game.logo %}
-                    <img src="{{ game.logo }}" alt="{{ game.name }}" class="max-h-full max-w-full object-contain">
-                    {% endif %}
-                </div>
-                <h2 class="text-lg text-center">{{ game.name }}</h2>
-            </a>
-            {% endfor %}
+        {% set game_items = games|selectattr('category', 'equalto', 'game')|list %}
+        {% set tool_items = games|selectattr('category', 'equalto', 'tool')|list %}
+        <div class="home-tabs" role="tablist" aria-label="分类导航">
+            <button type="button" class="home-tab is-active" role="tab" aria-selected="true" data-tab="game">
+                <span>游戏</span>
+                {% if game_items %}<span class="tab-count">{{ game_items|length }}</span>{% endif %}
+            </button>
+            {% if tool_items %}
+            <button type="button" class="home-tab" role="tab" aria-selected="false" data-tab="tool">
+                <span>工具</span>
+                {% if tool_items %}<span class="tab-count">{{ tool_items|length }}</span>{% endif %}
+            </button>
+            {% endif %}
         </div>
+
+        {% if game_items %}
+        <section class="home-tab-panel is-active" role="tabpanel" data-panel="game">
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {% for game in game_items %}
+                <a href="{{ game.url }}" class="game-entry block relative bg-gray-900 rounded-2xl p-5 hover:bg-gray-800 transition-all hover:-translate-y-0.5 hover:shadow-lg" data-game-name="{{ game.name }}">
+                    {% if game.badge %}
+                    <span class="absolute top-3 right-3 z-10 rounded-md px-2 py-0.5 text-xs font-semibold tracking-wide bg-amber-500/20 text-amber-300 border border-amber-400/40">{{ game.badge }}</span>
+                    {% endif %}
+                    <div class="game-thumb w-full aspect-[4/3] flex items-center justify-center rounded-xl bg-gray-800 mb-4 overflow-hidden">
+                        {% if game.logo %}
+                        <img src="{{ game.logo }}" alt="{{ game.name }}" class="max-h-[78%] max-w-[78%] object-contain transition-transform duration-300 group-hover:scale-105">
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                        <h3 class="text-base font-medium truncate">{{ game.name }}</h3>
+                        <span class="enter-arrow text-sm opacity-0 -translate-x-1 transition-all" aria-hidden="true">→</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+        {% if tool_items %}
+        <section class="home-tab-panel" role="tabpanel" data-panel="tool" hidden>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {% for game in tool_items %}
+                <a href="{{ game.url }}" class="game-entry block relative bg-gray-900 rounded-2xl p-5 hover:bg-gray-800 transition-all hover:-translate-y-0.5 hover:shadow-lg" data-game-name="{{ game.name }}">
+                    {% if game.badge %}
+                    <span class="absolute top-3 right-3 z-10 rounded-md px-2 py-0.5 text-xs font-semibold tracking-wide bg-amber-500/20 text-amber-300 border border-amber-400/40">{{ game.badge }}</span>
+                    {% endif %}
+                    <div class="game-thumb w-full aspect-[4/3] flex items-center justify-center rounded-xl bg-gray-800 mb-4 overflow-hidden">
+                        {% if game.logo %}
+                        <img src="{{ game.logo }}" alt="{{ game.name }}" class="max-h-[78%] max-w-[78%] object-contain">
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                        <h3 class="text-base font-medium truncate">{{ game.name }}</h3>
+                        <span class="enter-arrow text-sm opacity-0 -translate-x-1 transition-all" aria-hidden="true">→</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
         {% endif %}
     </div>
 
@@ -743,6 +860,37 @@
       systemThemeQuery.addEventListener('change', applyThemeMode);
       setInterval(applyThemeMode, 60 * 1000);
       applyThemeMode();
+    })();
+    </script>
+    <script>
+    // 分类标签页切换（游戏 / 工具）
+    (function () {
+      'use strict';
+      var tabs = Array.from(document.querySelectorAll('.home-tab'));
+      var panels = Array.from(document.querySelectorAll('.home-tab-panel'));
+      if (!tabs.length) return;
+      function activate(tab) {
+        var name = tab.getAttribute('data-tab');
+        tabs.forEach(function (t) {
+          var on = t === tab;
+          t.classList.toggle('is-active', on);
+          t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        panels.forEach(function (p) {
+          var on = p.getAttribute('data-panel') === name;
+          p.classList.toggle('is-active', on);
+          p.hidden = !on;
+        });
+      }
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () { activate(tab); });
+      });
+      // 若 URL 带 ?cat=tool，默认选中工具
+      var wanted = new URLSearchParams(window.location.search).get('cat');
+      if (wanted) {
+        var target = tabs.find(function (t) { return t.getAttribute('data-tab') === wanted; });
+        if (target) activate(target);
+      }
     })();
     </script>
 </body>

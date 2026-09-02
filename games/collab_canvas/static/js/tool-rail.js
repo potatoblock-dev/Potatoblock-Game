@@ -8,6 +8,9 @@
       this.mount = mount;
       this.onChange = settings.onChange || (() => {});
       this.variantStore = settings.variantStore || new ToolVariantStore();
+      this.brushLibrary = settings.brushLibrary || null;
+      this.collabToolPanel = settings.collabToolPanel || null;
+      this.onCollabPanelOpen = settings.onCollabPanelOpen || (() => {});
       this.currentTool = ToolRegistry.resolveTool(settings.initialTool || 'brush', this.variantStore);
       this._openGroupId = null;
       this._openFlyoutWrap = null;
@@ -41,6 +44,8 @@
 
     _groupActiveTool(group) {
       if (group.type === 'single') return group.toolId;
+      // 合作工具是集合按钮，主按钮恒显示「合作工具」图标。
+      if (group.id === 'collab') return 'collabTool';
       const saved = this.variantStore.get(group.id);
       if (saved && group.variants.includes(saved)) return saved;
       return group.defaultVariant;
@@ -77,6 +82,10 @@
     }
 
     _createGroupBtn(group, activeId, isActive) {
+      // 合作工具本身是「集合」按钮：点击直接展开合作工具侧栏，不渲染小三角。
+      if (group.id === 'collab') {
+        return this._createCollabBtn(group, isActive);
+      }
       const meta = ToolRail.getToolMeta(activeId);
       const wrap = document.createElement('div');
       wrap.className = 'tool-rail-group';
@@ -118,6 +127,36 @@
       return wrap;
     }
 
+    /** 合作工具：单按钮，点击即展开合作工具侧栏。 */
+    _createCollabBtn(group, isActive) {
+      const meta = ToolRail.getToolMeta('collabTool');
+      const wrap = document.createElement('div');
+      wrap.className = 'tool-rail-group';
+      wrap.dataset.group = group.id;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tool-rail-btn tool-rail-group-main' + (isActive ? ' is-active' : '');
+      btn.dataset.tool = 'collabTool';
+      btn.dataset.group = group.id;
+      btn.setAttribute('data-tooltip', meta.label);
+      btn.setAttribute('aria-label', meta.label);
+      btn.appendChild(MaterialIcons.createToolIcon(meta, 'tool-rail-icon'));
+      btn.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        // 已展开则收起，否则展开。
+        if (this._openGroupId === group.id && this.collabToolPanel && this.collabToolPanel.isOpen) {
+          this._closeFlyout();
+        } else {
+          this._openGroupFlyout(group, wrap);
+        }
+      });
+
+      wrap.appendChild(btn);
+      return wrap;
+    }
+
     /** 点击小三角：展开/收起横向变体条。 */
     _toggleGroupFlyout(group, wrap) {
       if (this._openGroupId === group.id && this._openFlyoutWrap === wrap) {
@@ -128,6 +167,29 @@
     }
 
     _openGroupFlyout(group, wrap) {
+      // 画笔组用双栏笔刷库面板（BrushLibrary）替代纯图标 flyout。
+      if (group.id === 'brush' && this.brushLibrary) {
+        this.brushLibrary.open(wrap);
+        wrap.classList.add('is-flyout-open');
+        this._openGroupId = group.id;
+        this._openFlyoutWrap = wrap;
+        this._openFlyoutEl = null;
+        this._flyoutReposition = null;
+        return;
+      }
+      // 合作工具组：展开合作工具侧栏，列出批注等工具。
+      if (group.id === 'collab') {
+        this._closeFlyout();
+        if (this.collabToolPanel) {
+          this.collabToolPanel.open(wrap);
+          wrap.classList.add('is-flyout-open');
+          this._openGroupId = group.id;
+          this._openFlyoutWrap = wrap;
+          this._openFlyoutEl = null;
+          this._flyoutReposition = null;
+        }
+        return;
+      }
       this._closeFlyout();
       const flyout = document.createElement('div');
       flyout.className = 'tool-rail-flyout';
@@ -197,14 +259,21 @@
       if (this._openFlyoutEl && this._openFlyoutEl.parentNode) {
         this._openFlyoutEl.parentNode.removeChild(this._openFlyoutEl);
       }
+      if (this.brushLibrary && this.brushLibrary.isOpen) this.brushLibrary.close();
+      if (this.collabToolPanel && this.collabToolPanel.isOpen) this.collabToolPanel.close();
       this._openGroupId = null;
       this._openFlyoutWrap = null;
       this._openFlyoutEl = null;
     }
 
     _onDocPointer(event) {
-      if (!this._openFlyoutEl) return;
+      if (!this._openFlyoutEl
+        && !(this.brushLibrary && this.brushLibrary.isOpen)
+        && !(this.collabToolPanel && this.collabToolPanel.isOpen)) return;
       if (event.target.closest('.tool-rail-flyout')) return;
+      if (event.target.closest('.brush-library-panel')) return;
+      if (event.target.closest('.brush-settings-panel')) return;
+      if (event.target.closest('.collab-tool-panel')) return;
       if (this._openFlyoutWrap && this._openFlyoutWrap.contains(event.target)) return;
       this._closeFlyout();
     }
@@ -223,8 +292,10 @@
       }
       const changed = resolved !== this.currentTool;
       this.currentTool = resolved;
-      this._closeFlyout();
-      if (changed || settings.forceRender) {
+      // 选择画笔库预设时保持面板开启（连续试笔）；仅刷新激活态，不重建 DOM。
+      const keepOpen = settings.keepBrushLibraryOpen && this.brushLibrary && this.brushLibrary.isOpen;
+      if (!keepOpen) this._closeFlyout();
+      if (changed && !keepOpen) {
         this._render();
       } else {
         this._syncActiveUi();

@@ -101,12 +101,11 @@
       }, 1000);
     }
 
-    /** 刷新新建按钮禁用态与冷却提示。 */
+    /** 刷新新建按钮禁用态与冷却提示（房主 3s / 房客 60s 均有冷却）。 */
     _updateAddButton() {
       if (!this.addBtn) return;
-      const owner = this.isOwner();
-      const remain = owner ? 0 : this.getCreateCooldownMs();
-      if (owner || remain <= 0) {
+      const remain = this.getCreateCooldownMs();
+      if (remain <= 0) {
         this.addBtn.disabled = false;
         this.addBtn.setAttribute('data-tooltip', '新建画板');
         return;

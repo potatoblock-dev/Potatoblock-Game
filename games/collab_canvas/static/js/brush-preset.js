@@ -13,7 +13,8 @@
       opacity: 1,
       flow: 1,
       spacing: 0.25,
-      randomJitter: 0
+      randomJitter: 0,
+      driverSource: 'pressure'
     },
     eraser: {
       thinning: 0.5,
@@ -24,7 +25,8 @@
       opacity: 1,
       flow: 1,
       spacing: 0.25,
-      randomJitter: 0
+      randomJitter: 0,
+      driverSource: 'pressure'
     },
     glow: {
       thinning: 0.2,
@@ -35,7 +37,8 @@
       opacity: 0.55,
       flow: 0.5,
       spacing: 0.5,
-      randomJitter: 0
+      randomJitter: 0,
+      driverSource: 'pressure'
     },
     spray: {
       thinning: 0.3,
@@ -46,7 +49,8 @@
       opacity: 0.75,
       flow: 0.7,
       spacing: 0.25,
-      randomJitter: 0.35
+      randomJitter: 0.35,
+      driverSource: 'random'
     }
   };
 
@@ -55,6 +59,9 @@
     constructor() {
       this.tool = 'brush';
       this.size = 8;
+      this.id = 'round';
+      this.name = '圆头笔';
+      this.category = '常用';
       this.applyDefaults('brush');
     }
 
@@ -62,6 +69,20 @@
     applyDefaults(tool) {
       const defaults = PRESET_DEFAULTS[tool] || PRESET_DEFAULTS.brush;
       Object.assign(this, defaults);
+    }
+
+    /** 从注册表加载一个预设（id → 参数/名称/分组/tool）。 */
+    applyPreset(presetId) {
+      const registry = global.BrushRegistry;
+      if (!registry || typeof registry.getPreset !== 'function') return false;
+      const preset = registry.getPreset(presetId);
+      if (!preset) return false;
+      this.id = preset.id;
+      this.name = preset.name;
+      this.category = preset.category;
+      this.tool = preset.tool;
+      Object.assign(this, preset.params || {});
+      return true;
     }
 
     /** 切换当前笔刷变体（brush / eraser / glow / spray）。 */
@@ -78,6 +99,8 @@
 
     /**
      * 生成 perfect-freehand 选项；strokePart 控制首尾锥形（start/mid/end/single）。
+     * last 恒为 true：每个 segment 都是独立完成的迷你笔画，轮廓必须到达真实端点，
+     * 否则 last:false 会截短轮廓（streamline 插值到 57.5%），快速长线段之间出现断触。
      */
     getStrokeOptions(strokeSizePx, strokePart) {
       const part = strokePart || 'mid';
@@ -91,7 +114,7 @@
         simulatePressure: true,
         start: { taper: taperStart },
         end: { taper: taperEnd },
-        last: part === 'end' || part === 'single'
+        last: true
       };
     }
   }

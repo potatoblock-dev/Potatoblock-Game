@@ -3,6 +3,7 @@
 
   const SELECT_TOOLS = new Set(['selectRect', 'selectEllipse', 'selectLasso', 'selectPolygon', 'magicWand']);
   const STROKE_DRAW_TOOLS = new Set(['brush', 'eraser', 'glow', 'spray']);
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const SHAPE_TOOLS = {
     rectOutline: { tool: 'rect', filled: false },
     rectFill: { tool: 'rect', filled: true },
@@ -34,6 +35,35 @@
       onPointerDown(ctx) { return brushDown(board, ctx); },
       onPointerMove(ctx) { return brushMove(board, ctx); },
       onPointerUp(ctx) { return brushUp(board, ctx); }
+    });
+    controller.register('annotation', {
+      onPointerDown(ctx) {
+        const { event } = ctx;
+        if (!board.canDraw) return false;
+        event.preventDefault();
+        board._annotationPending = board.normalizedPoint(event);
+        try {
+          if (board.canvas) board.canvas.setPointerCapture(event.pointerId);
+        } catch (_err) {}
+        return true;
+      },
+      onPointerUp(ctx) {
+        const { event } = ctx;
+        const pt = board.normalizedPoint(event);
+        if (board._annotationPending && board.addAnnotation) {
+          board.addAnnotation(pt.x, pt.y);
+        }
+        board._annotationPending = null;
+        // 放置后自动收起合作工具侧栏，避免重复放置。
+        if (board.closeCollabPanel) board.closeCollabPanel();
+        return true;
+      }
+    });
+    // 合作工具（容器项）本身不绘制，只负责展开侧栏；选到它时跳过指针画布交互。
+    controller.register('collabTool', {
+      onPointerDown(ctx) { return false; },
+      onPointerMove(ctx) { return false; },
+      onPointerUp(ctx) { return false; }
     });
 
     controller.register('zoom', {
@@ -358,6 +388,24 @@ function resolveStrokeTool(board, event) {
   return STROKE_DRAW_TOOLS.has(tool) ? tool : 'brush';
 }
 
+/**
+ * 按驱动源计算当前段线宽：
+ * pressure=压感曲线；fixed=固定 base；speed=基础×速度系数；random=基础×确定性随机抖动。
+ */
+function brushSizeForDriver(penInput, driverSource, pressure, isStylus, event, baseSize) {
+  if (driverSource === 'fixed') {
+    return clamp(Math.round(baseSize), 1, 128);
+  }
+  if (driverSource === 'speed') {
+    return clamp(Math.round(baseSize * penInput.speedModifier(event)), 1, 128);
+  }
+  if (driverSource === 'random') {
+    const jitter = 0.6 + Math.abs(Math.sin((event.clientX + event.clientY) * 12.9898)) * 0.8;
+    return clamp(Math.round(baseSize * jitter), 1, 128);
+  }
+  return penInput.sizeForPressure(pressure, isStylus, event);
+}
+
 function brushDown(board, ctx) {
   const { event } = ctx;
   if (!board.canDraw) return false;
@@ -406,15 +454,24 @@ function brushMove(board, ctx) {
   const minDist = 0.5 / Math.max(board.drawingBoard.logicalWidth, 1);
   if (dx * dx + dy * dy < minDist * minDist) return true;
   const isStylus = drawPt.pressure != null;
-  const sizeStart = board.penInput.sizeForPressure(
+  const driverSource = board.brushPreset && board.brushPreset.driverSource
+    ? board.brushPreset.driverSource
+    : 'pressure';
+  const sizeStart = brushSizeForDriver(
+    board.penInput,
+    driverSource,
     board.lastPoint.pressure != null ? board.lastPoint.pressure : 0.5,
     isStylus,
-    event
+    event,
+    board.currentSize
   );
-  const sizeEnd = board.penInput.sizeForPressure(
+  const sizeEnd = brushSizeForDriver(
+    board.penInput,
+    driverSource,
     drawPt.pressure != null ? drawPt.pressure : 0.5,
     isStylus,
-    event
+    event,
+    board.currentSize
   );
   const strokePart = board._strokeSegmentIndex === 0 ? 'start' : 'mid';
   board._strokeSegmentIndex += 1;
@@ -426,9 +483,13 @@ function brushMove(board, ctx) {
     x2: drawPt.x,
     y2: drawPt.y,
     color: board.currentColor,
-    size: sizeEnd,
+    // 整段以当前滑块大小「currentSize」为稳定基准，段内起止宽度由 points 压力经 thinning 平滑过渡；
+    // 避免每段各自以「末尾线宽」为基准，导致运笔压力波动时相邻段交界处宽度突变（断触感）。
+    size: board.currentSize,
     tool: board.activeStrokeTool,
     strokePart,
+    sizeStart,
+    sizeEnd,
     points: [
       { x: board.lastPoint.x, y: board.lastPoint.y, pressure: p1 },
       { x: drawPt.x, y: drawPt.y, pressure: p2 }

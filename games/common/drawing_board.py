@@ -17,9 +17,23 @@ LAYER_KIND_PAINT = "paint"
 LAYER_KIND_GROUP = "group"
 VALID_LAYER_KINDS = {LAYER_KIND_PAINT, LAYER_KIND_GROUP}
 VALID_TOOLS = {"brush", "eraser", "glow", "spray", "fill", "background", "line", "rect", "ellipse", "gradient"}
+BRUSH_TOOLS = {"brush", "eraser", "glow", "spray"}
+STROKE_PARTS = {"start", "mid", "end", "single"}
+# 画笔预设参数区间：键 → (最小值, 最大值, 默认值)
+BRUSH_PARAM_RANGES = {
+    "thinning": (0.0, 1.0, 0.5),
+    "smoothing": (0.0, 1.0, 0.5),
+    "streamline": (0.0, 1.0, 0.5),
+    "opacity": (0.0, 1.0, 1.0),
+    "flow": (0.0, 1.0, 1.0),
+    "spacing": (0.0, 2.0, 0.25),
+    "randomJitter": (0.0, 1.0, 0.0),
+}
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 VECTOR_CANVAS_WIDTH = 1920
 VECTOR_CANVAS_HEIGHT = 1080
+VECTOR_CANVAS_MIN = 256
+VECTOR_CANVAS_MAX = 8192
 PIXEL_CANVAS_MIN = 2
 PIXEL_CANVAS_MAX = 128
 DEFAULT_PIXEL_SIZE = 32
@@ -65,7 +79,18 @@ def normalize_canvas_mode(data: object) -> Dict[str, object]:
     if mode not in {"vector", "pixel"}:
         raise ValueError("画布模式无效")
     if mode == "vector":
-        return default_vector_canvas()
+        # 支持自定义矢量画布尺寸（256–8192），无宽高时回退默认 1920×1080。
+        try:
+            width = int(payload.get("width", VECTOR_CANVAS_WIDTH))
+            height = int(payload.get("height", VECTOR_CANVAS_HEIGHT))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("矢量画板尺寸无效") from exc
+        if not (
+            VECTOR_CANVAS_MIN <= width <= VECTOR_CANVAS_MAX
+            and VECTOR_CANVAS_MIN <= height <= VECTOR_CANVAS_MAX
+        ):
+            raise ValueError(f"矢量画板宽高必须在 {VECTOR_CANVAS_MIN} 到 {VECTOR_CANVAS_MAX} 之间")
+        return {"mode": "vector", "width": width, "height": height}
     try:
         width = int(payload.get("width", DEFAULT_PIXEL_SIZE))
         height = int(payload.get("height", DEFAULT_PIXEL_SIZE))
@@ -102,6 +127,40 @@ def _stroke_size(value: object, default: float = 5.0) -> float:
     except (TypeError, ValueError):
         size = default
     return max(1.0, min(128.0, size))
+
+
+def _clamp_float(value: object, lo: float, hi: float, default: float) -> float:
+    """把任意值夹到 [lo, hi]；非有限数或无法解析返回 default。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number):
+        return default
+    return max(lo, min(hi, number))
+
+
+def _normalize_stroke_points(value: object) -> List[Dict[str, object]]:
+    """校验 perfect-freehand 输入点：归一化为 [{x, y, pressure?}]，超限截断。"""
+    if not isinstance(value, list) or not value:
+        return []
+    points: List[Dict[str, object]] = []
+    for raw in value[:512]:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            x = _unit_float(raw.get("x"))
+            y = _unit_float(raw.get("y"))
+        except (TypeError, ValueError):
+            continue
+        point: Dict[str, object] = {"x": x, "y": y}
+        pressure = raw.get("pressure")
+        if pressure is not None:
+            clamped = _clamp_float(pressure, 0.0, 1.0, -1.0)
+            if clamped >= 0.0:
+                point["pressure"] = round(clamped, 4)
+        points.append(point)
+    return points
 
 
 def normalize_segment(data: Dict) -> Dict[str, object]:
@@ -143,7 +202,7 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
         if tool in {"rect", "ellipse"}:
             segment["filled"] = bool(data.get("filled", False))
         return segment
-    return {
+    segment: Dict[str, object] = {
         "x1": _unit_float(data["x1"]),
         "y1": _unit_float(data["y1"]),
         "x2": _unit_float(data["x2"]),
@@ -152,6 +211,20 @@ def normalize_segment(data: Dict) -> Dict[str, object]:
         "size": _stroke_size(data.get("size", 5)),
         "tool": tool,
     }
+    if tool in BRUSH_TOOLS:
+        # 透传 perfect-freehand 新笔刷字段，保证联机广播与重绘不丢平滑/锥形/质感。
+        points = _normalize_stroke_points(data.get("points"))
+        if points:
+            segment["points"] = points
+        part = str(data.get("strokePart") or "mid")
+        if part in STROKE_PARTS:
+            segment["strokePart"] = part
+        for key, (lo, hi, default) in BRUSH_PARAM_RANGES.items():
+            value = data.get(key)
+            if value is None:
+                continue
+            segment[key] = round(_clamp_float(value, lo, hi, default), 4)
+    return segment
 
 
 def default_layers() -> List[Dict[str, object]]:

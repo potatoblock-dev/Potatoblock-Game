@@ -84,7 +84,7 @@
     }
 
     /** 根据指针速度返回线宽倍率（快移变细）。 */
-    _speedModifier(event) {
+    speedModifier(event) {
       if (!this.useSpeedCurve || !event) return 1;
       const now = performance.now();
       const sample = this._lastMotionSample;
@@ -99,7 +99,7 @@
     /** 按压力值换算线宽；isStylus 为 false 时忽略压力返回基础线宽。 */
     sizeForPressure(pressure, isStylus, event) {
       const base = this.getBaseSize();
-      const speedMod = this._speedModifier(event);
+      const speedMod = this.speedModifier(event);
       if (!this.enabled || !isStylus) {
         return clamp(Math.round(base * speedMod), 1, 128);
       }

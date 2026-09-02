@@ -24,8 +24,15 @@ def get_games():
             info = module.game_info.copy()
             info.pop("router", None)
             info.pop("static_dir", None)
+            # 兼容未声明 category 的旧游戏，默认归入游戏分区
+            info.setdefault("category", "game")
             games.append(info)
-    games.sort(key=lambda g: (g.get("menu_order", 1000), str(g.get("name") or "")))
+    games.sort(key=lambda g: (
+        # 游戏分区在前、工具分区在后；同分区内按 menu_order 排
+        0 if g.get("category", "game") == "game" else 1,
+        g.get("menu_order", 1000),
+        str(g.get("name") or ""),
+    ))
     return games
 
 

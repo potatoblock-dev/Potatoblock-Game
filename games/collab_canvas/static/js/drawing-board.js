@@ -68,8 +68,8 @@
         this.logicalWidth = clamp(Math.round(Number(width) || 32), 2, 128);
         this.logicalHeight = clamp(Math.round(Number(height) || 32), 2, 128);
       } else {
-        this.logicalWidth = 1920;
-        this.logicalHeight = 1080;
+        this.logicalWidth = clamp(Math.round(Number(width) || 1920), 256, 8192);
+        this.logicalHeight = clamp(Math.round(Number(height) || 1080), 256, 8192);
       }
       this.maxFillOperations = this.logicalWidth * this.logicalHeight * 6;
       this.canvas.width = this.logicalWidth;
@@ -290,7 +290,8 @@
           simulatePressure: true,
           start: { taper: strokePart === 'start' || strokePart === 'single' },
           end: { taper: strokePart === 'end' || strokePart === 'single' },
-          last: strokePart === 'end' || strokePart === 'single'
+          // last 恒为 true：保证轮廓到达真实端点，避免快速长线段间出现断触。
+          last: true
         };
       }
       const outline = pf.getStroke(points, options);

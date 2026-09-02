@@ -22,7 +22,9 @@
     magicWand: { icon: 'auto_fix', label: '魔棒' },
     hand: { icon: 'pan_tool', label: '抓手' },
     move: { icon: 'open_with', label: '移动' },
-    zoom: { icon: 'zoom_in', label: '缩放' }
+    zoom: { icon: 'zoom_in', label: '缩放' },
+    collabTool: { icon: 'group', label: '合作工具' },
+    annotation: { icon: 'chat_bubble', label: '批注' }
   };
 
   /** 左侧工具栏分组（flyout 组含 variants）。 */
@@ -41,7 +43,8 @@
     { id: 'select', type: 'flyout', defaultVariant: 'selectRect', variants: ['selectRect', 'selectEllipse', 'selectLasso', 'selectPolygon', 'magicWand'] },
     { id: 'move', type: 'single', toolId: 'move' },
     { id: 'hand', type: 'single', toolId: 'hand' },
-    { id: 'zoom', type: 'single', toolId: 'zoom' }
+    { id: 'zoom', type: 'single', toolId: 'zoom' },
+    { id: 'collab', type: 'flyout', defaultVariant: 'collabTool', variants: ['collabTool', 'annotation'] }
   ];
 
   /** 快捷键 action → 工具变体 id。 */

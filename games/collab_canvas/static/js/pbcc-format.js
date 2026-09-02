@@ -34,6 +34,27 @@
     };
   }
 
+  /** 校验并规范化一条批注（x/y 0-1，mode/direction 白名单）。 */
+  function sanitizeAnnotation(ann) {
+    if (!ann || typeof ann !== 'object') return null;
+    const x = Number(ann.x);
+    const y = Number(ann.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const clamp01 = v => Math.min(1, Math.max(0, v));
+    const mode = ann.mode === 'pinned' ? 'pinned' : 'hover';
+    const dir = ['br', 'bl', 'tr', 'tl'].includes(ann.direction) ? ann.direction : 'br';
+    return {
+      id: String(ann.id || ''),
+      x: clamp01(x),
+      y: clamp01(y),
+      mode,
+      direction: dir,
+      text: String(ann.text || '').slice(0, 2000),
+      created_by: String(ann.created_by || ''),
+      created_at: Number(ann.created_at || 0)
+    };
+  }
+
   /** 从画板快照构建 .pbcc 文档对象。 */
   function buildDocument(options) {
     const opts = options || {};
@@ -55,6 +76,7 @@
         ),
         layers,
         strokes,
+        annotations: (meta.annotations || []).map(sanitizeAnnotation).filter(Boolean),
         created_at: Number(meta.created_at || 0),
         created_by: String(meta.created_by || '')
       });
@@ -105,6 +127,7 @@
         canvas: board.canvas || { mode: 'vector', width: 1920, height: 1080 },
         layers: (board.layers || []).map(sanitizeLayer).filter(Boolean),
         strokes: (board.strokes || []).map(sanitizeStroke).filter(Boolean),
+        annotations: (board.annotations || []).map(sanitizeAnnotation).filter(Boolean),
         created_at: Number(board.created_at || 0),
         created_by: String(board.created_by || '')
       }))

@@ -218,7 +218,14 @@
 
   const boardPanel = new BoardPanel(document.getElementById('boardPanelPane'), {
     onSwitch: boardId => boardController && boardController.switchBoard(boardId),
-    onCreate: () => boardController && boardController.createBoard(),
+    onCreate: () => {
+      if (!boardController) return;
+      const dialog = new BoardSizeDialog({
+        onConfirm: size => boardController.createBoard(size),
+        onCancel: () => {}
+      });
+      dialog.open();
+    },
     onRename: (id, title) => boardController && boardController.renameBoard(id, title),
     onDelete: id => boardController && boardController.deleteBoard(id),
     canDeleteBoard: id => boardController && boardController.canDeleteBoard(id),
@@ -399,6 +406,15 @@
       layer_reordered: data => boardController.handleLayerReordered(data),
       layer_updated: data => boardController.handleLayerUpdated(data),
       cursor_update: data => cursorOverlay.update(data.player_id, data),
+      annotation_added: data => {
+        if (boardController) boardController.handleAnnotationAdded(data);
+      },
+      annotation_updated: data => {
+        if (boardController) boardController.handleAnnotationUpdated(data);
+      },
+      annotation_deleted: data => {
+        if (boardController) boardController.handleAnnotationDeleted(data);
+      },
       player_style: data => {
         cursorOverlay.setPlayerStyle(data.player_id, data);
         if (boardController && data.name) {
@@ -410,6 +426,8 @@
             if (roomPanel) roomPanel.setPlayers(list);
           }
         }
+        // 批注颜色/创建者昵称实时同步。
+        if (boardController) boardController._syncAnnotations();
         if (boardPanel) boardPanel.refreshOccupantTree();
       },
       player_board: data => {
@@ -534,6 +552,88 @@
     selfId,
     onRoomChange: () => {}
   });
+
+  // 批注层：挂在画布 surface 内，随 viewport 缩放/平移/旋转。
+  const annotationLayer = new AnnotationLayer(stageSurface, {
+    getBoard: () => boardController,
+    getDrawingBoard: () => (boardController ? boardController.drawingBoard : null),
+    getViewport: () => canvasViewport,
+    getPlayersSnapshot: () => (boardController ? boardController.getPlayersSnapshot() : []),
+    resolveLabelColor: (playerId, wireColor) => onlinePrefs.resolveLabelColor(playerId, wireColor)
+  });
+  boardController.annotationLayer = annotationLayer;
+
+  // 合作工具侧栏，挂到 toolRail 的合作工具组。
+  const collabToolPanel = new CollabToolPanel({
+    onSelect: toolId => {
+      if (boardController && toolId === 'annotation') {
+        boardController._setTool('annotation');
+      }
+    },
+    onClose: () => {}
+  });
+  toolRail.collabToolPanel = collabToolPanel;
+
+  // 笔刷库 + 参数面板（双栏选择 / 参数编辑），挂到 toolRail 的画笔组 flyout。
+  const brushSettings = new BrushSettings({
+    getPreset: () => (boardController ? boardController.brushPreset : null),
+    getBrushColor: () => (colorPair ? colorPair.foreground : '#111827'),
+    onSizeChange: size => {
+      if (boardController) boardController._setBrushSize(size);
+    },
+    onParamsChange: () => {
+      if (boardController) boardController._redraw();
+    },
+    onClose: () => {}
+  });
+
+  const brushLibrary = new BrushLibrary({
+    onSelect: presetId => {
+      if (boardController) boardController.applyBrushPreset(presetId);
+      // 切换预设时保持次级设置面板打开并刷新（若已打开）。
+      if (brushSettings.isOpen) {
+        brushSettings.refresh();
+      }
+    },
+    onClose: () => {
+      // 笔刷库收起时，次级设置面板一并收起。
+      if (brushSettings.isOpen) brushSettings.close();
+    },
+    onEditSettings: () => {
+      const anchor = document.querySelector('.tool-rail-group[data-group="brush"]');
+      if (brushSettings.isOpen) brushSettings.close();
+      else brushSettings.open(anchor);
+    },
+    getBrushSize: () => (boardController ? boardController.currentSize : 8),
+    getBrushColor: () => (colorPair ? colorPair.foreground : '#111827'),
+    onSizeChange: size => {
+      if (boardController) boardController._setBrushSize(size);
+    },
+    onOpacityChange: opacity => {
+      if (boardController && boardController.brushPreset) {
+        boardController.brushPreset.opacity = opacity;
+        boardController._redraw();
+      }
+    },
+    onFlowChange: flow => {
+      if (boardController && boardController.brushPreset) {
+        boardController.brushPreset.flow = flow;
+        boardController._redraw();
+      }
+    },
+    getOpacity: () => (boardController ? boardController.getBrushOpacity() : 1),
+    getFlow: () => (boardController ? boardController.getBrushFlow() : 1),
+    getActivePresetId: () => (boardController ? boardController.getActivePresetId() : 'round')
+  });
+  toolRail.brushLibrary = brushLibrary;
+  if (global.BrushRecentStore) {
+    new BrushRecentStore();
+    // 刷新后恢复上次激活的预设（避免 rail 显示持久化变体但 brushPreset 仍是默认）。
+    // 优先用显式记录的 active id；旧版本未持久化时回退到最近使用列表首项。
+    const store = BrushRecentStore.instance;
+    const activeId = store.getActive() || store.getRecent()[0] || '';
+    if (activeId && boardController) boardController.applyBrushPreset(activeId);
+  }
 
   popupPalette = new PopupPalette({
     colorPicker,
