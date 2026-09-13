@@ -21,6 +21,47 @@
 
 ---
 
+## 认证：Passport OAuth2/OIDC
+
+登录唯一入口是 Passport 的 **Authorization Code + PKCE（S256）**，端点由
+`https://passport.potatoblock.com/.well-known/openid-configuration` 发现，不在代码里硬编码。
+
+| 路由 | 说明 |
+|------|------|
+| `GET /login?next=/game` | 生成 state / PKCE verifier / nonce 存 session → 302 到 Passport `/oauth/authorize` |
+| `GET /pwa/login-done` | 回调：校验 state → 换 token → 验 id_token（JWKS / iss / aud / exp / nonce）→ 写本站 session |
+| `POST /logout` | 清本站 session（Provider 无 end_session 端点，Passport SSO 仍然保持） |
+
+本站 session 只存 `user_id` / `nickname` / `auth_time`，**不放任何 token**：
+Starlette 的会话 Cookie 是签名可见而非加密，放 token 等于把凭证交给浏览器。
+
+client 配置全部在 `config/site.yml`（**唯一配置来源，不读环境变量**；该文件属服务器本地文件，
+与 `passport.api_key`、`secret_key` 一样不进 CD 推送的 `app/` 仓）：
+
+```yaml
+oauth:
+  issuer: "https://passport.potatoblock.com"
+  scope: "openid profile"
+  local_profile: "localhost"        # localhost / 127.0.0.1 走哪个 profile
+  clients:
+    default:                        # 线上
+      client_id: "potatoblock-game"
+      client_secret: "<注册时一次性返回的 secret>"
+      redirect_uri: "https://game.potatoblock.com/pwa/login-done"
+    localhost:                      # 本地开发，端口须与注册值一致
+      client_id: "potatoblock-game-dev"
+      client_secret: "<dev client secret>"
+      redirect_uri: "http://localhost:8000/pwa/login-done"
+session:
+  max_age: 604800    # 本站会话 7 天，与 Passport refresh_token_ttl 对齐
+  https_only: false  # 生产 HTTPS 设 true
+```
+
+**`redirect_uri` 必须与 Passport 上注册的值逐字符一致**（Provider 精确匹配），改路径需先在 Passport 重新注册。
+`client_secret` 未填时 `/login` 直接返回「通行证登录未配置」错误页（503），不会白屏或 500。
+
+---
+
 ## 仓库角色（简要）
 
 ```
