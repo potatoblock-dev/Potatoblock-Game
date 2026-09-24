@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录未完成</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        background: #121212; color: #e5e5e5; font-family: system-ui, sans-serif; padding: 24px; }
+      .card { max-width: 420px; text-align: center; line-height: 1.6; }
+      h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 12px; }
+      p { margin: 0 0 16px; opacity: .85; font-size: 0.95rem; }
+      a { color: #93c5fd; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>登录未完成</h1>
+        <p>{{ message }}</p>
+        <p><a href="{{ retry_url }}">返回通行证重新登录</a></p>
+    </div>
+</body>
+</html>

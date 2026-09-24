@@ -1,0 +1,2958 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>弹跳旋转贴图（单文件版）</title>
+  <style>
+    :root {
+      --bg: #f5f6f7;
+      --panel: #ffffff;
+      --text: #1a1c1e;
+      --muted: #5f6368;
+      --accent: #1a73e8;
+      --accent-dim: #1557b0;
+      --border: #dadce0;
+      --danger: #d93025;
+      --ok: #188038;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 1rem 1.25rem 0.5rem;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    header p {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .stage {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.75rem 1.25rem;
+      min-height: 280px;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      max-width: 100%;
+      max-height: min(62vh, 720px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background-color: #ffffff;
+      box-shadow: 0 1px 3px rgba(60, 64, 67, 0.12);
+    }
+
+    #preview {
+      display: block;
+      max-width: 100%;
+      max-height: min(62vh, 720px);
+      width: auto;
+      height: auto;
+      vertical-align: middle;
+      background: #ffffff;
+    }
+
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+      pointer-events: none;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .placeholder.hidden { display: none; }
+
+    .controls {
+      padding: 0.75rem 1.25rem 1.25rem;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      align-items: center;
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    .field label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .field input[type="range"] {
+      width: 120px;
+      accent-color: var(--accent);
+    }
+
+    .field input[type="number"] {
+      width: 4.5rem;
+      padding: 0.3rem 0.4rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #fff;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      padding: 0.45rem 0.85rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: #e8f0fe;
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+    }
+
+    .file-btn {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .file-btn input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .status {
+      font-size: 0.8rem;
+      color: var(--muted);
+      min-height: 1.2em;
+    }
+
+    .status.error { color: var(--danger); }
+    .status.ok { color: var(--ok); }
+
+    .progress {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      display: none;
+    }
+
+    .progress.active { display: block; }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.1s linear;
+    }
+
+    .drop-active {
+      cursor: copy;
+    }
+
+    .drop-active .canvas-wrap {
+      outline: 2px dashed var(--accent);
+      outline-offset: 4px;
+      background-color: #e8f0fe;
+    }
+
+    .drop-active .canvas-wrap::after {
+      content: "松开以导入 / 替换贴图";
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--accent);
+      font-size: 1rem;
+      font-weight: 600;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .seg {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .seg .seg-btn {
+      border: none;
+      border-radius: 0;
+      margin: 0;
+      background: #fff;
+      box-shadow: none;
+    }
+
+    .seg .seg-btn + .seg-btn {
+      border-left: 1px solid var(--border);
+    }
+
+    .seg .seg-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .seg .seg-btn.active:hover:not(:disabled) {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+    }
+
+    .btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .btn.active:hover:not(:disabled) {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+    }
+    .export-panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+
+    .export-panel h2 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .export-summary {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.45;
+      padding: 0.4rem 0.55rem;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    .export-summary strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .export-details {
+      border: none;
+      padding: 0;
+      background: transparent;
+    }
+
+    .export-details > summary {
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--muted);
+      padding: 0.45rem 0.65rem;
+      user-select: none;
+      list-style: none;
+      display: block;
+      width: fit-content;
+      max-width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .export-details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .export-details > summary::before {
+      content: "▸ ";
+      color: var(--accent);
+    }
+
+    .export-details[open] > summary {
+      border-radius: 6px 6px 0 0;
+      width: 100%;
+    }
+
+    .export-details[open] > summary::before {
+      content: "▾ ";
+    }
+
+    .export-details-body {
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 6px 6px;
+      background: #fff;
+      padding: 0.35rem 0.65rem 0.65rem;
+    }
+
+    .export-details-body .row {
+      margin-top: 0.5rem;
+    }
+
+    .field select {
+      padding: 0.3rem 0.4rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #fff;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>弹跳旋转贴图</h1>
+    <p>导入 PNG / JPG / GIF（拖拽、粘贴剪贴板或选文件），在 3D 场景中挤压拉伸弹跳，并绕垂直 Y 轴旋转；可导出动画 GIF 或 WebM。完全离线可用。</p>
+  </header>
+
+  <div class="stage" id="dropZone">
+    <div class="canvas-wrap">
+      <canvas id="preview" width="480" height="360"></canvas>
+      <div class="placeholder" id="placeholder">拖入 / 粘贴 PNG·JPG·GIF，或点击「导入图片」</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="row">
+      <label class="btn btn-primary file-btn">
+        导入图片
+        <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.gif,image/png,image/jpeg,image/gif" />
+      </label>
+      <button type="button" class="btn" id="btnPaste" title="从剪贴板粘贴图片（也可 Ctrl+V / ⌘V）">粘贴图片</button>
+      <span class="status" id="fileStatus">尚未导入</span>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>放置</label>
+        <div class="seg" role="group" aria-label="物体放置方式">
+          <button type="button" class="btn seg-btn active" id="btnPlaceCenter" data-place="center">物体中置</button>
+          <button type="button" class="btn seg-btn" id="btnPlaceGround" data-place="ground">物体置地</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>翻转</label>
+        <button type="button" class="btn" id="btnFlipV" title="垂直翻转贴图">垂直翻转</button>
+      </div>
+      <div class="field">
+        <label for="freq">Frequency (Hz)</label>
+        <input type="range" id="freq" min="0.1" max="8" step="0.1" value="2" />
+        <input type="number" id="freqNum" min="0.1" max="8" step="0.1" value="2" />
+      </div>
+      <div class="field">
+          <label for="rot">Y 轴旋转 (°/s)</label>
+        <input type="range" id="rot" min="-720" max="720" step="1" value="90" />
+        <input type="number" id="rotNum" min="-720" max="720" step="1" value="90" />
+      </div>
+      <div class="field">
+        <label for="strength">Bounce strength</label>
+        <input type="range" id="strength" min="0" max="0.4" step="0.01" value="0.22" />
+        <input type="number" id="strengthNum" min="0" max="0.4" step="0.01" value="0.22" />
+      </div>
+    </div>
+
+    <section class="export-panel" aria-label="导出">
+      <h2>导出</h2>
+      <div class="row">
+        <button type="button" class="btn btn-primary" id="btnExportGif" disabled>导出 GIF</button>
+        <button type="button" class="btn" id="btnExportWebm" disabled hidden>导出 WebM</button>
+        <button type="button" class="btn" id="btnEstimateSize" disabled>预估大小</button>
+        <button type="button" class="btn" id="btnPresetFull" disabled title="画质 1× · 36 帧">预设·全尺寸</button>
+        <button type="button" class="btn" id="btnPresetHalf" disabled title="画质 0.5× · 24 帧">预设·1/2</button>
+        <button type="button" class="btn" id="btnPreset2m" disabled title="自动压到约 2MB 内">预设·≤2MB</button>
+      </div>
+      <div class="export-summary" id="exportSummary">
+        导入图片后可导出。循环时长将按弹跳与旋转周期自动对齐。
+      </div>
+      <details class="export-details" id="exportDetails">
+        <summary>详细参数（画质 / 帧数 / 颜色）</summary>
+        <div class="export-details-body" id="exportDetailsBody">
+        <div class="row">
+          <div class="field">
+            <label for="qualityScale">画质倍数</label>
+            <select id="qualityScale">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="0.75">0.75×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="frameCount">帧数</label>
+            <input type="range" id="frameCount" min="8" max="72" step="1" value="36" />
+            <input type="number" id="frameCountNum" min="8" max="72" step="1" value="36" />
+          </div>
+          <div class="field">
+            <label for="colorCount">颜色数</label>
+            <input type="range" id="colorCount" min="16" max="256" step="16" value="128" />
+            <input type="number" id="colorCountNum" min="16" max="256" step="16" value="128" />
+          </div>
+          <div class="field">
+            <label for="loopCycles">循环次数</label>
+            <input type="range" id="loopCycles" min="1" max="4" step="1" value="1" />
+            <input type="number" id="loopCyclesNum" min="1" max="4" step="1" value="1" />
+          </div>
+        </div>
+        <div class="row">
+          <span class="status" id="loopHint">循环 = 弹跳周期与旋转周期的最小公倍数近似</span>
+        </div>
+        </div>
+      </details>
+      <div class="progress" id="progress"><span id="progressBar"></span></div>
+      <div class="status" id="exportStatus"></div>
+    </section>
+  </div>
+
+  <!-- bundled: gifenc + app (offline single file) -->
+  <script>
+var exports = {};
+var __defProp = Object.defineProperty;
+var __markAsModule = (target) => __defProp(target, "__esModule", {value: true});
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, {get: all[name], enumerable: true});
+};
+
+// src/index.js
+__markAsModule(exports);
+__export(exports, {
+  GIFEncoder: () => GIFEncoder,
+  applyPalette: () => applyPalette,
+  default: () => src_default,
+  nearestColor: () => nearestColor,
+  nearestColorIndex: () => nearestColorIndex,
+  nearestColorIndexWithDistance: () => nearestColorIndexWithDistance,
+  prequantize: () => prequantize,
+  quantize: () => quantize,
+  snapColorsToPalette: () => snapColorsToPalette
+});
+
+// src/constants.js
+var constants_default = {
+  signature: "GIF",
+  version: "89a",
+  trailer: 59,
+  extensionIntroducer: 33,
+  applicationExtensionLabel: 255,
+  graphicControlExtensionLabel: 249,
+  imageSeparator: 44,
+  signatureSize: 3,
+  versionSize: 3,
+  globalColorTableFlagMask: 128,
+  colorResolutionMask: 112,
+  sortFlagMask: 8,
+  globalColorTableSizeMask: 7,
+  applicationIdentifierSize: 8,
+  applicationAuthCodeSize: 3,
+  disposalMethodMask: 28,
+  userInputFlagMask: 2,
+  transparentColorFlagMask: 1,
+  localColorTableFlagMask: 128,
+  interlaceFlagMask: 64,
+  idSortFlagMask: 32,
+  localColorTableSizeMask: 7
+};
+
+// src/stream.js
+function createStream(initialCapacity = 256) {
+  let cursor = 0;
+  let contents = new Uint8Array(initialCapacity);
+  return {
+    get buffer() {
+      return contents.buffer;
+    },
+    reset() {
+      cursor = 0;
+    },
+    bytesView() {
+      return contents.subarray(0, cursor);
+    },
+    bytes() {
+      return contents.slice(0, cursor);
+    },
+    writeByte(byte) {
+      expand(cursor + 1);
+      contents[cursor] = byte;
+      cursor++;
+    },
+    writeBytes(data, offset = 0, byteLength = data.length) {
+      expand(cursor + byteLength);
+      for (let i = 0; i < byteLength; i++) {
+        contents[cursor++] = data[i + offset];
+      }
+    },
+    writeBytesView(data, offset = 0, byteLength = data.byteLength) {
+      expand(cursor + byteLength);
+      contents.set(data.subarray(offset, offset + byteLength), cursor);
+      cursor += byteLength;
+    }
+  };
+  function expand(newCapacity) {
+    var prevCapacity = contents.length;
+    if (prevCapacity >= newCapacity)
+      return;
+    var CAPACITY_DOUBLING_MAX = 1024 * 1024;
+    newCapacity = Math.max(newCapacity, prevCapacity * (prevCapacity < CAPACITY_DOUBLING_MAX ? 2 : 1.125) >>> 0);
+    if (prevCapacity != 0)
+      newCapacity = Math.max(newCapacity, 256);
+    const oldContents = contents;
+    contents = new Uint8Array(newCapacity);
+    if (cursor > 0)
+      contents.set(oldContents.subarray(0, cursor), 0);
+  }
+}
+
+// src/lzwEncode.js
+var BITS = 12;
+var DEFAULT_HSIZE = 5003;
+var MASKS = [
+  0,
+  1,
+  3,
+  7,
+  15,
+  31,
+  63,
+  127,
+  255,
+  511,
+  1023,
+  2047,
+  4095,
+  8191,
+  16383,
+  32767,
+  65535
+];
+function lzwEncode(width, height, pixels, colorDepth, outStream = createStream(512), accum = new Uint8Array(256), htab = new Int32Array(DEFAULT_HSIZE), codetab = new Int32Array(DEFAULT_HSIZE)) {
+  const hsize = htab.length;
+  const initCodeSize = Math.max(2, colorDepth);
+  accum.fill(0);
+  codetab.fill(0);
+  htab.fill(-1);
+  let cur_accum = 0;
+  let cur_bits = 0;
+  const init_bits = initCodeSize + 1;
+  const g_init_bits = init_bits;
+  let clear_flg = false;
+  let n_bits = g_init_bits;
+  let maxcode = (1 << n_bits) - 1;
+  const ClearCode = 1 << init_bits - 1;
+  const EOFCode = ClearCode + 1;
+  let free_ent = ClearCode + 2;
+  let a_count = 0;
+  let ent = pixels[0];
+  let hshift = 0;
+  for (let fcode = hsize; fcode < 65536; fcode *= 2) {
+    ++hshift;
+  }
+  hshift = 8 - hshift;
+  outStream.writeByte(initCodeSize);
+  output(ClearCode);
+  const length = pixels.length;
+  for (let idx = 1; idx < length; idx++) {
+    next_block: {
+      const c = pixels[idx];
+      const fcode = (c << BITS) + ent;
+      let i = c << hshift ^ ent;
+      if (htab[i] === fcode) {
+        ent = codetab[i];
+        break next_block;
+      }
+      const disp = i === 0 ? 1 : hsize - i;
+      while (htab[i] >= 0) {
+        i -= disp;
+        if (i < 0)
+          i += hsize;
+        if (htab[i] === fcode) {
+          ent = codetab[i];
+          break next_block;
+        }
+      }
+      output(ent);
+      ent = c;
+      if (free_ent < 1 << BITS) {
+        codetab[i] = free_ent++;
+        htab[i] = fcode;
+      } else {
+        htab.fill(-1);
+        free_ent = ClearCode + 2;
+        clear_flg = true;
+        output(ClearCode);
+      }
+    }
+  }
+  output(ent);
+  output(EOFCode);
+  outStream.writeByte(0);
+  return outStream.bytesView();
+  function output(code) {
+    cur_accum &= MASKS[cur_bits];
+    if (cur_bits > 0)
+      cur_accum |= code << cur_bits;
+    else
+      cur_accum = code;
+    cur_bits += n_bits;
+    while (cur_bits >= 8) {
+      accum[a_count++] = cur_accum & 255;
+      if (a_count >= 254) {
+        outStream.writeByte(a_count);
+        outStream.writeBytesView(accum, 0, a_count);
+        a_count = 0;
+      }
+      cur_accum >>= 8;
+      cur_bits -= 8;
+    }
+    if (free_ent > maxcode || clear_flg) {
+      if (clear_flg) {
+        n_bits = g_init_bits;
+        maxcode = (1 << n_bits) - 1;
+        clear_flg = false;
+      } else {
+        ++n_bits;
+        maxcode = n_bits === BITS ? 1 << n_bits : (1 << n_bits) - 1;
+      }
+    }
+    if (code == EOFCode) {
+      while (cur_bits > 0) {
+        accum[a_count++] = cur_accum & 255;
+        if (a_count >= 254) {
+          outStream.writeByte(a_count);
+          outStream.writeBytesView(accum, 0, a_count);
+          a_count = 0;
+        }
+        cur_accum >>= 8;
+        cur_bits -= 8;
+      }
+      if (a_count > 0) {
+        outStream.writeByte(a_count);
+        outStream.writeBytesView(accum, 0, a_count);
+        a_count = 0;
+      }
+    }
+  }
+}
+var lzwEncode_default = lzwEncode;
+
+// src/rgb-packing.js
+function rgb888_to_rgb565(r, g, b) {
+  return r << 8 & 63488 | g << 2 & 992 | b >> 3;
+}
+function rgba8888_to_rgba4444(r, g, b, a) {
+  return r >> 4 | g & 240 | (b & 240) << 4 | (a & 240) << 8;
+}
+function rgb888_to_rgb444(r, g, b) {
+  return r >> 4 << 8 | g & 240 | b >> 4;
+}
+
+// src/pnnquant2.js
+function clamp(value, min, max) {
+  return value < min ? min : value > max ? max : value;
+}
+function sqr(value) {
+  return value * value;
+}
+function find_nn(bins, idx, hasAlpha) {
+  var nn = 0;
+  var err = 1e100;
+  const bin1 = bins[idx];
+  const n1 = bin1.cnt;
+  const wa = bin1.ac;
+  const wr = bin1.rc;
+  const wg = bin1.gc;
+  const wb = bin1.bc;
+  for (var i = bin1.fw; i != 0; i = bins[i].fw) {
+    const bin = bins[i];
+    const n2 = bin.cnt;
+    const nerr2 = n1 * n2 / (n1 + n2);
+    if (nerr2 >= err)
+      continue;
+    var nerr = 0;
+    if (hasAlpha) {
+      nerr += nerr2 * sqr(bin.ac - wa);
+      if (nerr >= err)
+        continue;
+    }
+    nerr += nerr2 * sqr(bin.rc - wr);
+    if (nerr >= err)
+      continue;
+    nerr += nerr2 * sqr(bin.gc - wg);
+    if (nerr >= err)
+      continue;
+    nerr += nerr2 * sqr(bin.bc - wb);
+    if (nerr >= err)
+      continue;
+    err = nerr;
+    nn = i;
+  }
+  bin1.err = err;
+  bin1.nn = nn;
+}
+function create_bin() {
+  return {
+    ac: 0,
+    rc: 0,
+    gc: 0,
+    bc: 0,
+    cnt: 0,
+    nn: 0,
+    fw: 0,
+    bk: 0,
+    tm: 0,
+    mtm: 0,
+    err: 0
+  };
+}
+function create_bin_list(data, format) {
+  const bincount = format === "rgb444" ? 4096 : 65536;
+  const bins = new Array(bincount);
+  const size = data.length;
+  if (format === "rgba4444") {
+    for (let i = 0; i < size; ++i) {
+      const color = data[i];
+      const a = color >> 24 & 255;
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const index = rgba8888_to_rgba4444(r, g, b, a);
+      let bin = index in bins ? bins[index] : bins[index] = create_bin();
+      bin.rc += r;
+      bin.gc += g;
+      bin.bc += b;
+      bin.ac += a;
+      bin.cnt++;
+    }
+  } else if (format === "rgb444") {
+    for (let i = 0; i < size; ++i) {
+      const color = data[i];
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const index = rgb888_to_rgb444(r, g, b);
+      let bin = index in bins ? bins[index] : bins[index] = create_bin();
+      bin.rc += r;
+      bin.gc += g;
+      bin.bc += b;
+      bin.cnt++;
+    }
+  } else {
+    for (let i = 0; i < size; ++i) {
+      const color = data[i];
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const index = rgb888_to_rgb565(r, g, b);
+      let bin = index in bins ? bins[index] : bins[index] = create_bin();
+      bin.rc += r;
+      bin.gc += g;
+      bin.bc += b;
+      bin.cnt++;
+    }
+  }
+  return bins;
+}
+function quantize(rgba, maxColors, opts = {}) {
+  const {
+    format = "rgb565",
+    clearAlpha = true,
+    clearAlphaColor = 0,
+    clearAlphaThreshold = 0,
+    oneBitAlpha = false
+  } = opts;
+  if (!rgba || !rgba.buffer) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  if (!(rgba instanceof Uint8Array) && !(rgba instanceof Uint8ClampedArray)) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  const data = new Uint32Array(rgba.buffer);
+  let useSqrt = opts.useSqrt !== false;
+  const hasAlpha = format === "rgba4444";
+  const bins = create_bin_list(data, format);
+  const bincount = bins.length;
+  const bincountMinusOne = bincount - 1;
+  const heap = new Uint32Array(bincount + 1);
+  var maxbins = 0;
+  for (var i = 0; i < bincount; ++i) {
+    const bin = bins[i];
+    if (bin != null) {
+      var d = 1 / bin.cnt;
+      if (hasAlpha)
+        bin.ac *= d;
+      bin.rc *= d;
+      bin.gc *= d;
+      bin.bc *= d;
+      bins[maxbins++] = bin;
+    }
+  }
+  if (sqr(maxColors) / maxbins < 0.022) {
+    useSqrt = false;
+  }
+  var i = 0;
+  for (; i < maxbins - 1; ++i) {
+    bins[i].fw = i + 1;
+    bins[i + 1].bk = i;
+    if (useSqrt)
+      bins[i].cnt = Math.sqrt(bins[i].cnt);
+  }
+  if (useSqrt)
+    bins[i].cnt = Math.sqrt(bins[i].cnt);
+  var h, l, l2;
+  for (i = 0; i < maxbins; ++i) {
+    find_nn(bins, i, false);
+    var err = bins[i].err;
+    for (l = ++heap[0]; l > 1; l = l2) {
+      l2 = l >> 1;
+      if (bins[h = heap[l2]].err <= err)
+        break;
+      heap[l] = h;
+    }
+    heap[l] = i;
+  }
+  var extbins = maxbins - maxColors;
+  for (i = 0; i < extbins; ) {
+    var tb;
+    for (; ; ) {
+      var b1 = heap[1];
+      tb = bins[b1];
+      if (tb.tm >= tb.mtm && bins[tb.nn].mtm <= tb.tm)
+        break;
+      if (tb.mtm == bincountMinusOne)
+        b1 = heap[1] = heap[heap[0]--];
+      else {
+        find_nn(bins, b1, false);
+        tb.tm = i;
+      }
+      var err = bins[b1].err;
+      for (l = 1; (l2 = l + l) <= heap[0]; l = l2) {
+        if (l2 < heap[0] && bins[heap[l2]].err > bins[heap[l2 + 1]].err)
+          l2++;
+        if (err <= bins[h = heap[l2]].err)
+          break;
+        heap[l] = h;
+      }
+      heap[l] = b1;
+    }
+    var nb = bins[tb.nn];
+    var n1 = tb.cnt;
+    var n2 = nb.cnt;
+    var d = 1 / (n1 + n2);
+    if (hasAlpha)
+      tb.ac = d * (n1 * tb.ac + n2 * nb.ac);
+    tb.rc = d * (n1 * tb.rc + n2 * nb.rc);
+    tb.gc = d * (n1 * tb.gc + n2 * nb.gc);
+    tb.bc = d * (n1 * tb.bc + n2 * nb.bc);
+    tb.cnt += nb.cnt;
+    tb.mtm = ++i;
+    bins[nb.bk].fw = nb.fw;
+    bins[nb.fw].bk = nb.bk;
+    nb.mtm = bincountMinusOne;
+  }
+  let palette = [];
+  var k = 0;
+  for (i = 0; ; ++k) {
+    let r = clamp(Math.round(bins[i].rc), 0, 255);
+    let g = clamp(Math.round(bins[i].gc), 0, 255);
+    let b = clamp(Math.round(bins[i].bc), 0, 255);
+    let a = 255;
+    if (hasAlpha) {
+      a = clamp(Math.round(bins[i].ac), 0, 255);
+      if (oneBitAlpha) {
+        const threshold = typeof oneBitAlpha === "number" ? oneBitAlpha : 127;
+        a = a <= threshold ? 0 : 255;
+      }
+      if (clearAlpha && a <= clearAlphaThreshold) {
+        r = g = b = clearAlphaColor;
+        a = 0;
+      }
+    }
+    const color = hasAlpha ? [r, g, b, a] : [r, g, b];
+    const exists = existsInPalette(palette, color);
+    if (!exists)
+      palette.push(color);
+    if ((i = bins[i].fw) == 0)
+      break;
+  }
+  return palette;
+}
+function existsInPalette(palette, color) {
+  for (let i = 0; i < palette.length; i++) {
+    const p = palette[i];
+    let matchesRGB = p[0] === color[0] && p[1] === color[1] && p[2] === color[2];
+    let matchesAlpha = p.length >= 4 && color.length >= 4 ? p[3] === color[3] : true;
+    if (matchesRGB && matchesAlpha)
+      return true;
+  }
+  return false;
+}
+
+// src/color.js
+function euclideanDistanceSquared(a, b) {
+  var sum = 0;
+  var n;
+  for (n = 0; n < a.length; n++) {
+    const dx = a[n] - b[n];
+    sum += dx * dx;
+  }
+  return sum;
+}
+
+// src/palettize.js
+function roundStep(byte, step) {
+  return step > 1 ? Math.round(byte / step) * step : byte;
+}
+function prequantize(rgba, {roundRGB = 5, roundAlpha = 10, oneBitAlpha = null} = {}) {
+  const data = new Uint32Array(rgba.buffer);
+  for (let i = 0; i < data.length; i++) {
+    const color = data[i];
+    let a = color >> 24 & 255;
+    let b = color >> 16 & 255;
+    let g = color >> 8 & 255;
+    let r = color & 255;
+    a = roundStep(a, roundAlpha);
+    if (oneBitAlpha) {
+      const threshold = typeof oneBitAlpha === "number" ? oneBitAlpha : 127;
+      a = a <= threshold ? 0 : 255;
+    }
+    r = roundStep(r, roundRGB);
+    g = roundStep(g, roundRGB);
+    b = roundStep(b, roundRGB);
+    data[i] = a << 24 | b << 16 | g << 8 | r << 0;
+  }
+}
+function applyPalette(rgba, palette, format = "rgb565") {
+  if (!rgba || !rgba.buffer) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  if (!(rgba instanceof Uint8Array) && !(rgba instanceof Uint8ClampedArray)) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  if (palette.length > 256) {
+    throw new Error("applyPalette() only works with 256 colors or less");
+  }
+  const data = new Uint32Array(rgba.buffer);
+  const length = data.length;
+  const bincount = format === "rgb444" ? 4096 : 65536;
+  const index = new Uint8Array(length);
+  const cache = new Array(bincount);
+  const hasAlpha = format === "rgba4444";
+  if (format === "rgba4444") {
+    for (let i = 0; i < length; i++) {
+      const color = data[i];
+      const a = color >> 24 & 255;
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const key = rgba8888_to_rgba4444(r, g, b, a);
+      const idx = key in cache ? cache[key] : cache[key] = nearestColorIndexRGBA(r, g, b, a, palette);
+      index[i] = idx;
+    }
+  } else {
+    const rgb888_to_key = format === "rgb444" ? rgb888_to_rgb444 : rgb888_to_rgb565;
+    for (let i = 0; i < length; i++) {
+      const color = data[i];
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const key = rgb888_to_key(r, g, b);
+      const idx = key in cache ? cache[key] : cache[key] = nearestColorIndexRGB(r, g, b, palette);
+      index[i] = idx;
+    }
+  }
+  return index;
+}
+function nearestColorIndexRGBA(r, g, b, a, palette) {
+  let k = 0;
+  let mindist = 1e100;
+  for (let i = 0; i < palette.length; i++) {
+    const px2 = palette[i];
+    const a2 = px2[3];
+    let curdist = sqr2(a2 - a);
+    if (curdist > mindist)
+      continue;
+    const r2 = px2[0];
+    curdist += sqr2(r2 - r);
+    if (curdist > mindist)
+      continue;
+    const g2 = px2[1];
+    curdist += sqr2(g2 - g);
+    if (curdist > mindist)
+      continue;
+    const b2 = px2[2];
+    curdist += sqr2(b2 - b);
+    if (curdist > mindist)
+      continue;
+    mindist = curdist;
+    k = i;
+  }
+  return k;
+}
+function nearestColorIndexRGB(r, g, b, palette) {
+  let k = 0;
+  let mindist = 1e100;
+  for (let i = 0; i < palette.length; i++) {
+    const px2 = palette[i];
+    const r2 = px2[0];
+    let curdist = sqr2(r2 - r);
+    if (curdist > mindist)
+      continue;
+    const g2 = px2[1];
+    curdist += sqr2(g2 - g);
+    if (curdist > mindist)
+      continue;
+    const b2 = px2[2];
+    curdist += sqr2(b2 - b);
+    if (curdist > mindist)
+      continue;
+    mindist = curdist;
+    k = i;
+  }
+  return k;
+}
+function snapColorsToPalette(palette, knownColors, threshold = 5) {
+  if (!palette.length || !knownColors.length)
+    return;
+  const paletteRGB = palette.map((p) => p.slice(0, 3));
+  const thresholdSq = threshold * threshold;
+  const dim = palette[0].length;
+  for (let i = 0; i < knownColors.length; i++) {
+    let color = knownColors[i];
+    if (color.length < dim) {
+      color = [color[0], color[1], color[2], 255];
+    } else if (color.length > dim) {
+      color = color.slice(0, 3);
+    } else {
+      color = color.slice();
+    }
+    const r = nearestColorIndexWithDistance(paletteRGB, color.slice(0, 3), euclideanDistanceSquared);
+    const idx = r[0];
+    const distanceSq = r[1];
+    if (distanceSq > 0 && distanceSq <= thresholdSq) {
+      palette[idx] = color;
+    }
+  }
+}
+function sqr2(a) {
+  return a * a;
+}
+function nearestColorIndex(colors, pixel, distanceFn = euclideanDistanceSquared) {
+  let minDist = Infinity;
+  let minDistIndex = -1;
+  for (let j = 0; j < colors.length; j++) {
+    const paletteColor = colors[j];
+    const dist = distanceFn(pixel, paletteColor);
+    if (dist < minDist) {
+      minDist = dist;
+      minDistIndex = j;
+    }
+  }
+  return minDistIndex;
+}
+function nearestColorIndexWithDistance(colors, pixel, distanceFn = euclideanDistanceSquared) {
+  let minDist = Infinity;
+  let minDistIndex = -1;
+  for (let j = 0; j < colors.length; j++) {
+    const paletteColor = colors[j];
+    const dist = distanceFn(pixel, paletteColor);
+    if (dist < minDist) {
+      minDist = dist;
+      minDistIndex = j;
+    }
+  }
+  return [minDistIndex, minDist];
+}
+function nearestColor(colors, pixel, distanceFn = euclideanDistanceSquared) {
+  return colors[nearestColorIndex(colors, pixel, distanceFn)];
+}
+
+// src/index.js
+function GIFEncoder(opt = {}) {
+  const {initialCapacity = 4096, auto = true} = opt;
+  const stream = createStream(initialCapacity);
+  const HSIZE = 5003;
+  const accum = new Uint8Array(256);
+  const htab = new Int32Array(HSIZE);
+  const codetab = new Int32Array(HSIZE);
+  let hasInit = false;
+  return {
+    reset() {
+      stream.reset();
+      hasInit = false;
+    },
+    finish() {
+      stream.writeByte(constants_default.trailer);
+    },
+    bytes() {
+      return stream.bytes();
+    },
+    bytesView() {
+      return stream.bytesView();
+    },
+    get buffer() {
+      return stream.buffer;
+    },
+    get stream() {
+      return stream;
+    },
+    writeHeader,
+    writeFrame(index, width, height, opts = {}) {
+      const {
+        transparent = false,
+        transparentIndex = 0,
+        delay = 0,
+        palette = null,
+        repeat = 0,
+        colorDepth = 8,
+        dispose = -1
+      } = opts;
+      let first = false;
+      if (auto) {
+        if (!hasInit) {
+          first = true;
+          writeHeader();
+          hasInit = true;
+        }
+      } else {
+        first = Boolean(opts.first);
+      }
+      width = Math.max(0, Math.floor(width));
+      height = Math.max(0, Math.floor(height));
+      if (first) {
+        if (!palette) {
+          throw new Error("First frame must include a { palette } option");
+        }
+        encodeLogicalScreenDescriptor(stream, width, height, palette, colorDepth);
+        encodeColorTable(stream, palette);
+        if (repeat >= 0) {
+          encodeNetscapeExt(stream, repeat);
+        }
+      }
+      const delayTime = Math.round(delay / 10);
+      encodeGraphicControlExt(stream, dispose, delayTime, transparent, transparentIndex);
+      const useLocalColorTable = Boolean(palette) && !first;
+      encodeImageDescriptor(stream, width, height, useLocalColorTable ? palette : null);
+      if (useLocalColorTable)
+        encodeColorTable(stream, palette);
+      encodePixels(stream, index, width, height, colorDepth, accum, htab, codetab);
+    }
+  };
+  function writeHeader() {
+    writeUTFBytes(stream, "GIF89a");
+  }
+}
+function encodeGraphicControlExt(stream, dispose, delay, transparent, transparentIndex) {
+  stream.writeByte(33);
+  stream.writeByte(249);
+  stream.writeByte(4);
+  if (transparentIndex < 0) {
+    transparentIndex = 0;
+    transparent = false;
+  }
+  var transp, disp;
+  if (!transparent) {
+    transp = 0;
+    disp = 0;
+  } else {
+    transp = 1;
+    disp = 2;
+  }
+  if (dispose >= 0) {
+    disp = dispose & 7;
+  }
+  disp <<= 2;
+  const userInput = 0;
+  stream.writeByte(0 | disp | userInput | transp);
+  writeUInt16(stream, delay);
+  stream.writeByte(transparentIndex || 0);
+  stream.writeByte(0);
+}
+function encodeLogicalScreenDescriptor(stream, width, height, palette, colorDepth = 8) {
+  const globalColorTableFlag = 1;
+  const sortFlag = 0;
+  const globalColorTableSize = colorTableSize(palette.length) - 1;
+  const fields = globalColorTableFlag << 7 | colorDepth - 1 << 4 | sortFlag << 3 | globalColorTableSize;
+  const backgroundColorIndex = 0;
+  const pixelAspectRatio = 0;
+  writeUInt16(stream, width);
+  writeUInt16(stream, height);
+  stream.writeBytes([fields, backgroundColorIndex, pixelAspectRatio]);
+}
+function encodeNetscapeExt(stream, repeat) {
+  stream.writeByte(33);
+  stream.writeByte(255);
+  stream.writeByte(11);
+  writeUTFBytes(stream, "NETSCAPE2.0");
+  stream.writeByte(3);
+  stream.writeByte(1);
+  writeUInt16(stream, repeat);
+  stream.writeByte(0);
+}
+function encodeColorTable(stream, palette) {
+  const colorTableLength = 1 << colorTableSize(palette.length);
+  for (let i = 0; i < colorTableLength; i++) {
+    let color = [0, 0, 0];
+    if (i < palette.length) {
+      color = palette[i];
+    }
+    stream.writeByte(color[0]);
+    stream.writeByte(color[1]);
+    stream.writeByte(color[2]);
+  }
+}
+function encodeImageDescriptor(stream, width, height, localPalette) {
+  stream.writeByte(44);
+  writeUInt16(stream, 0);
+  writeUInt16(stream, 0);
+  writeUInt16(stream, width);
+  writeUInt16(stream, height);
+  if (localPalette) {
+    const interlace = 0;
+    const sorted = 0;
+    const palSize = colorTableSize(localPalette.length) - 1;
+    stream.writeByte(128 | interlace | sorted | 0 | palSize);
+  } else {
+    stream.writeByte(0);
+  }
+}
+function encodePixels(stream, index, width, height, colorDepth = 8, accum, htab, codetab) {
+  lzwEncode_default(width, height, index, colorDepth, stream, accum, htab, codetab);
+}
+function writeUInt16(stream, short) {
+  stream.writeByte(short & 255);
+  stream.writeByte(short >> 8 & 255);
+}
+function writeUTFBytes(stream, text) {
+  for (var i = 0; i < text.length; i++) {
+    stream.writeByte(text.charCodeAt(i));
+  }
+}
+function colorTableSize(length) {
+  return Math.max(Math.ceil(Math.log2(length)), 1);
+}
+var src_default = GIFEncoder;
+//# sourceMappingURL=gifenc.js.map
+
+window.gifenc = {
+  GIFEncoder: exports.GIFEncoder,
+  quantize: exports.quantize,
+  applyPalette: exports.applyPalette
+};
+  </script>
+  <script>
+/**
+ * Offline 3D bounce + Y-axis spin (lightweight WebGL, no Three.js).
+ * Squash/stretch on the textured plane; export GIF/WebM from the WebGL canvas.
+ */
+(function () {
+  "use strict";
+
+  var MAX_EDGE = 2048;
+  var TWO_MB = 2 * 1024 * 1024;
+  var VIEW_SIZE = 640;
+
+  var canvas = document.getElementById("preview");
+  var placeholder = document.getElementById("placeholder");
+  var fileInput = document.getElementById("fileInput");
+  var btnPaste = document.getElementById("btnPaste");
+  var fileStatus = document.getElementById("fileStatus");
+  var exportStatus = document.getElementById("exportStatus");
+  var progressEl = document.getElementById("progress");
+  var progressBar = document.getElementById("progressBar");
+
+  var freqEl = document.getElementById("freq");
+  var freqNum = document.getElementById("freqNum");
+  var rotEl = document.getElementById("rot");
+  var rotNum = document.getElementById("rotNum");
+  var strengthEl = document.getElementById("strength");
+  var strengthNum = document.getElementById("strengthNum");
+
+  var qualityScaleEl = document.getElementById("qualityScale");
+  var frameCountEl = document.getElementById("frameCount");
+  var frameCountNum = document.getElementById("frameCountNum");
+  var colorCountEl = document.getElementById("colorCount");
+  var colorCountNum = document.getElementById("colorCountNum");
+  var loopCyclesEl = document.getElementById("loopCycles");
+  var loopCyclesNum = document.getElementById("loopCyclesNum");
+  var exportSummary = document.getElementById("exportSummary");
+  var loopHint = document.getElementById("loopHint");
+
+  var btnExportGif = document.getElementById("btnExportGif");
+  var btnExportWebm = document.getElementById("btnExportWebm");
+  var btnEstimateSize = document.getElementById("btnEstimateSize");
+  var btnPresetFull = document.getElementById("btnPresetFull");
+  var btnPresetHalf = document.getElementById("btnPresetHalf");
+  var btnPreset2m = document.getElementById("btnPreset2m");
+  var btnPlaceCenter = document.getElementById("btnPlaceCenter");
+  var btnPlaceGround = document.getElementById("btnPlaceGround");
+  var btnFlipV = document.getElementById("btnFlipV");
+
+  /** Placement mode: "center" (default) or "ground" (bottom edge glued to floor). */
+  var placeMode = "center";
+  /** Vertical mirror of the texture (UV). */
+  var flipV = false;
+  /** Last estimated / encoded GIF blob for reuse. */
+  var lastGifBlob = null;
+  var lastGifKey = "";
+  var estimatedSizeText = "—";
+
+  var sourceImage = null;
+  var objectUrl = null;
+  var baseW = VIEW_SIZE;
+  var baseH = VIEW_SIZE;
+  var startTime = performance.now();
+  var exporting = false;
+  var planeW = 1;
+  var planeH = 1;
+  var hasTexture = false;
+
+  var gl = null;
+  try {
+    gl = canvas.getContext("webgl", {
+      alpha: true,
+      antialias: true,
+      preserveDrawingBuffer: true,
+      premultipliedAlpha: false
+    });
+  } catch (e) {
+    gl = null;
+  }
+
+  /** Update a status element with text and optional CSS state class. */
+  function setStatus(el, text, kind) {
+    if (!el) return;
+    el.textContent = text || "";
+    el.classList.remove("error", "ok");
+    if (kind) el.classList.add(kind);
+  }
+
+  if (!gl) {
+    setStatus(fileStatus, "当前浏览器无法创建 WebGL，无法打开 3D 预览", "error");
+    setStatus(exportStatus, "请用 Chrome / Edge / Safari 打开本文件", "error");
+    return;
+  }
+
+  canvas.width = VIEW_SIZE;
+  canvas.height = VIEW_SIZE;
+
+  // ——— minimal mat4 helpers ———
+
+  /** Build a perspective projection matrix. */
+  function perspective(out, fovy, aspect, near, far) {
+    var f = 1 / Math.tan(fovy / 2);
+    var nf = 1 / (near - far);
+    out[0] = f / aspect;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = f;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 0;
+    out[9] = 0;
+    out[10] = (far + near) * nf;
+    out[11] = -1;
+    out[12] = 0;
+    out[13] = 0;
+    out[14] = 2 * far * near * nf;
+    out[15] = 0;
+    return out;
+  }
+
+  /** Build a look-at view matrix (eye → target, Y-up). Compatible with gl-matrix layout. */
+  function lookAt(out, eye, center, up) {
+    var eyex = eye[0],
+      eyey = eye[1],
+      eyez = eye[2];
+    var upx = up[0],
+      upy = up[1],
+      upz = up[2];
+    var z0 = eyex - center[0];
+    var z1 = eyey - center[1];
+    var z2 = eyez - center[2];
+    var len = Math.hypot(z0, z1, z2) || 1;
+    z0 /= len;
+    z1 /= len;
+    z2 /= len;
+
+    var x0 = upy * z2 - upz * z1;
+    var x1 = upz * z0 - upx * z2;
+    var x2 = upx * z1 - upy * z0;
+    len = Math.hypot(x0, x1, x2) || 1;
+    x0 /= len;
+    x1 /= len;
+    x2 /= len;
+
+    var y0 = z1 * x2 - z2 * x1;
+    var y1 = z2 * x0 - z0 * x2;
+    var y2 = z0 * x1 - z1 * x0;
+
+    out[0] = x0;
+    out[1] = y0;
+    out[2] = z0;
+    out[3] = 0;
+    out[4] = x1;
+    out[5] = y1;
+    out[6] = z1;
+    out[7] = 0;
+    out[8] = x2;
+    out[9] = y2;
+    out[10] = z2;
+    out[11] = 0;
+    out[12] = -(x0 * eyex + x1 * eyey + x2 * eyez);
+    out[13] = -(y0 * eyex + y1 * eyey + y2 * eyez);
+    out[14] = -(z0 * eyex + z1 * eyey + z2 * eyez);
+    out[15] = 1;
+    return out;
+  }
+
+  /** Multiply two mat4s: out = a * b. */
+  function multiply(out, a, b) {
+    var a00 = a[0],
+      a01 = a[1],
+      a02 = a[2],
+      a03 = a[3];
+    var a10 = a[4],
+      a11 = a[5],
+      a12 = a[6],
+      a13 = a[7];
+    var a20 = a[8],
+      a21 = a[9],
+      a22 = a[10],
+      a23 = a[11];
+    var a30 = a[12],
+      a31 = a[13],
+      a32 = a[14],
+      a33 = a[15];
+    var b0, b1, b2, b3;
+    b0 = b[0];
+    b1 = b[1];
+    b2 = b[2];
+    b3 = b[3];
+    out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+    out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+    out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+    out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+    b0 = b[4];
+    b1 = b[5];
+    b2 = b[6];
+    b3 = b[7];
+    out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+    out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+    out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+    out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+    b0 = b[8];
+    b1 = b[9];
+    b2 = b[10];
+    b3 = b[11];
+    out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+    out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+    out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+    out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+    b0 = b[12];
+    b1 = b[13];
+    b2 = b[14];
+    b3 = b[15];
+    out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+    out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+    out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+    out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+    return out;
+  }
+
+  /**
+   * Model matrix: scale, then rotate around Y, then optional Y translation.
+   * @param {number} yawRad rotation around Y
+   * @param {number} [ty=0] world Y translation (used to pin bottom to ground)
+   */
+  function modelScaleRotateY(out, sx, sy, sz, yawRad, ty) {
+    var c = Math.cos(yawRad);
+    var s = Math.sin(yawRad);
+    // R_y * S, then translate Y
+    out[0] = c * sx;
+    out[1] = 0;
+    out[2] = -s * sz;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = sy;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = s * sx;
+    out[9] = 0;
+    out[10] = c * sz;
+    out[11] = 0;
+    out[12] = 0;
+    out[13] = ty || 0;
+    out[14] = 0;
+    out[15] = 1;
+    return out;
+  }
+
+  // ——— WebGL programs ———
+
+  /** Compile a shader or throw with log. */
+  function compileShader(type, src) {
+    var sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(sh) || "shader compile failed");
+    }
+    return sh;
+  }
+
+  /** Link a program from vertex + fragment sources. */
+  function makeProgram(vsSrc, fsSrc) {
+    var prog = gl.createProgram();
+    gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(prog) || "program link failed");
+    }
+    return prog;
+  }
+
+  var texProg = makeProgram(
+    [
+      "attribute vec3 aPos;",
+      "attribute vec2 aUv;",
+      "uniform mat4 uMVP;",
+      "varying vec2 vUv;",
+      "void main(){",
+      "  vUv=aUv;",
+      "  gl_Position=uMVP*vec4(aPos,1.0);",
+      "}"
+    ].join("
+"),
+    [
+      "precision mediump float;",
+      "varying vec2 vUv;",
+      "uniform sampler2D uTex;",
+      "uniform float uHasTex;",
+      "void main(){",
+      "  if(uHasTex<0.5){ discard; }",
+      "  vec4 c=texture2D(uTex,vUv);",
+      "  if(c.a<0.02) discard;",
+      "  gl_FragColor=c;",
+      "}"
+    ].join("
+")
+  );
+
+  var lineProg = makeProgram(
+    [
+      "attribute vec3 aPos;",
+      "uniform mat4 uMVP;",
+      "void main(){ gl_Position=uMVP*vec4(aPos,1.0); }"
+    ].join("
+"),
+    [
+      "precision mediump float;",
+      "uniform vec4 uColor;",
+      "void main(){ gl_FragColor=uColor; }"
+    ].join("
+")
+  );
+
+  /** Soft elliptical ground shadow under the textured plane. */
+  var shadowProg = makeProgram(
+    [
+      "attribute vec3 aPos;",
+      "attribute vec2 aUv;",
+      "uniform mat4 uMVP;",
+      "varying vec2 vUv;",
+      "void main(){",
+      "  vUv=aUv;",
+      "  gl_Position=uMVP*vec4(aPos,1.0);",
+      "}"
+    ].join("
+"),
+    [
+      "precision mediump float;",
+      "varying vec2 vUv;",
+      "uniform float uAlpha;",
+      "void main(){",
+      "  vec2 p=vUv*2.0-1.0;",
+      "  float d=length(p);",
+      "  float a=uAlpha*smoothstep(1.0,0.15,d);",
+      "  if(a<0.01) discard;",
+      "  gl_FragColor=vec4(0.0,0.0,0.0,a);",
+      "}"
+    ].join("
+")
+  );
+
+  var texLoc = {
+    aPos: gl.getAttribLocation(texProg, "aPos"),
+    aUv: gl.getAttribLocation(texProg, "aUv"),
+    uMVP: gl.getUniformLocation(texProg, "uMVP"),
+    uTex: gl.getUniformLocation(texProg, "uTex"),
+    uHasTex: gl.getUniformLocation(texProg, "uHasTex")
+  };
+  var lineLoc = {
+    aPos: gl.getAttribLocation(lineProg, "aPos"),
+    uMVP: gl.getUniformLocation(lineProg, "uMVP"),
+    uColor: gl.getUniformLocation(lineProg, "uColor")
+  };
+  var shadowLoc = {
+    aPos: gl.getAttribLocation(shadowProg, "aPos"),
+    aUv: gl.getAttribLocation(shadowProg, "aUv"),
+    uMVP: gl.getUniformLocation(shadowProg, "uMVP"),
+    uAlpha: gl.getUniformLocation(shadowProg, "uAlpha")
+  };
+
+  var quadBuf = gl.createBuffer();
+  var quadUvBuf = gl.createBuffer();
+
+  /**
+   * Write plane UVs. With UNPACK_FLIP_Y_WEBGL, v=0 is image bottom / v=1 is top.
+   * Optional vertical mirror via flipV.
+   */
+  function updateQuadUVs() {
+    var vBottom = flipV ? 1 : 0;
+    var vTop = flipV ? 0 : 1;
+    // triangle strip: BL, BR, TL, TR
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadUvBuf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([0, vBottom, 1, vBottom, 0, vTop, 1, vTop]),
+      gl.STATIC_DRAW
+    );
+  }
+  updateQuadUVs();
+
+  /** Rebuild unit plane vertices for current planeW/planeH (XY facing +Z). */
+  function updateQuadGeometry() {
+    var hw = planeW * 0.5;
+    var hh = planeH * 0.5;
+    var verts = new Float32Array([-hw, -hh, 0, hw, -hh, 0, -hw, hh, 0, hw, hh, 0]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+  }
+  updateQuadGeometry();
+
+  var gridBuf = gl.createBuffer();
+  (function buildGrid() {
+    var lines = [];
+    var n = 6;
+    for (var i = -n; i <= n; i++) {
+      lines.push(i, -1.15, -n, i, -1.15, n);
+      lines.push(-n, -1.15, i, n, -1.15, i);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lines), gl.STATIC_DRAW);
+    gridBuf._count = lines.length / 3;
+  })();
+
+  // Horizontal unit quad on XZ (y=0), used as soft ground shadow
+  var shadowBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, shadowBuf);
+  gl.bufferData(
+    gl.ARRAY_BUFFER,
+    new Float32Array([-1, 0, -1, 1, 0, -1, -1, 0, 1, 1, 0, 1]),
+    gl.STATIC_DRAW
+  );
+  var shadowUvBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, shadowUvBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+
+  var GROUND_Y = -1.12;
+
+  /**
+   * Model matrix for ground shadow: scale XZ ellipse, rotate around Y, sit on ground.
+   * @param {number} yawRad
+   */
+  function modelShadowXZ(out, sx, sz, yawRad, y) {
+    var c = Math.cos(yawRad);
+    var s = Math.sin(yawRad);
+    // R_y * S_xz on horizontal quad, then translate to ground y
+    out[0] = c * sx;
+    out[1] = 0;
+    out[2] = -s * sz;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = 1;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = s * sx;
+    out[9] = 0;
+    out[10] = c * sz;
+    out[11] = 0;
+    out[12] = 0;
+    out[13] = y;
+    out[14] = 0;
+    out[15] = 1;
+    return out;
+  }
+
+  var glTexture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, glTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  // 1x1 placeholder
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+
+  var proj = new Float32Array(16);
+  var view = new Float32Array(16);
+  var model = new Float32Array(16);
+  var mvp = new Float32Array(16);
+  var tmp = new Float32Array(16);
+
+  lookAt(view, [0, 0.4, 5], [0, 0, 0], [0, 1, 0]);
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.disable(gl.DEPTH_TEST);
+
+  /**
+   * Clamp a numeric value into [min, max], with fallback when empty/NaN.
+   * @param {boolean} [integer]
+   * @param {number} [step] if set, snap to nearest step from min
+   */
+  function sanitizeNumber(raw, min, max, fallback, integer, step) {
+    var s = String(raw == null ? "" : raw).trim();
+    var v;
+    if (s === "" || s === "-" || s === "." || s === "-.") {
+      v = fallback;
+    } else {
+      v = Number(s);
+      if (!Number.isFinite(v)) v = fallback;
+    }
+    if (v < min) v = min;
+    if (v > max) v = max;
+    if (step && step > 0) {
+      v = min + Math.round((v - min) / step) * step;
+      if (v < min) v = min;
+      if (v > max) v = max;
+    }
+    if (integer) v = Math.round(v);
+    return v;
+  }
+
+  /**
+   * Commit a range+number pair: empty/illegal → fallback, then clamp into range.
+   * @param {{fallback:number, integer?:boolean, step?:number}} opts
+   */
+  function commitPair(range, number, opts) {
+    if (!range || !number) return;
+    var min = Number(range.min);
+    var max = Number(range.max);
+    var v = sanitizeNumber(number.value, min, max, opts.fallback, !!opts.integer, opts.step);
+    var text = opts.integer || (opts.step && opts.step >= 1) ? String(v) : String(v);
+    // Keep sensible decimals for non-integers
+    if (!opts.integer && opts.step && opts.step < 1) {
+      var decimals = String(opts.step).includes(".") ? String(opts.step).split(".")[1].length : 0;
+      text = v.toFixed(decimals);
+      // trim trailing zeros from toFixed only if not needed — keep fixed for slider sync
+      text = String(Number(text));
+    }
+    range.value = String(v);
+    number.value = text;
+  }
+
+  /**
+   * Live-sync range←number while typing; allow empty/partial/illegal in the number box.
+   * Does not rewrite the number field until blur/commit.
+   */
+  function bindPair(range, number, opts) {
+    opts = opts || { fallback: Number(range.value) || 0 };
+    range.addEventListener("input", function () {
+      number.value = range.value;
+    });
+    number.addEventListener("input", function () {
+      var raw = String(number.value).trim();
+      if (raw === "" || raw === "-" || raw === "." || raw === "-.") return;
+      var v = Number(raw);
+      if (!Number.isFinite(v)) return;
+      var min = Number(range.min);
+      var max = Number(range.max);
+      var clamped = v;
+      if (clamped < min) clamped = min;
+      if (clamped > max) clamped = max;
+      range.value = String(clamped);
+    });
+    number.addEventListener("blur", function () {
+      commitPair(range, number, opts);
+      if (typeof invalidateSizeEstimate === "function") invalidateSizeEstimate();
+    });
+  }
+
+  var pairOptsFreq = { fallback: 2, step: 0.1 };
+  var pairOptsRot = { fallback: 90, integer: true };
+  var pairOptsStrength = { fallback: 0.22, step: 0.01 };
+  var pairOptsFrames = { fallback: 36, integer: true };
+  var pairOptsColors = { fallback: 128, integer: true, step: 16 };
+  var pairOptsCycles = { fallback: 1, integer: true };
+
+  bindPair(freqEl, freqNum, pairOptsFreq);
+  bindPair(rotEl, rotNum, pairOptsRot);
+  bindPair(strengthEl, strengthNum, pairOptsStrength);
+  bindPair(frameCountEl, frameCountNum, pairOptsFrames);
+  bindPair(colorCountEl, colorCountNum, pairOptsColors);
+  bindPair(loopCyclesEl, loopCyclesNum, pairOptsCycles);
+
+  /** Commit all numeric fields before export / estimate (fix empty & illegal). */
+  function commitAllNumericFields() {
+    commitPair(freqEl, freqNum, pairOptsFreq);
+    commitPair(rotEl, rotNum, pairOptsRot);
+    commitPair(strengthEl, strengthNum, pairOptsStrength);
+    commitPair(frameCountEl, frameCountNum, pairOptsFrames);
+    commitPair(colorCountEl, colorCountNum, pairOptsColors);
+    commitPair(loopCyclesEl, loopCyclesNum, pairOptsCycles);
+    updateExportSummary();
+  }
+
+  /** Read bounce frequency in Hz. */
+  function getFrequency() {
+    return sanitizeNumber(freqEl.value, 0.1, 8, 2, false, 0.1);
+  }
+
+  /** Read Y-axis rotation speed in degrees per second. */
+  function getRotationDegPerSec() {
+    return sanitizeNumber(rotEl.value, -720, 720, 90, true);
+  }
+
+  /** Read squash/stretch amplitude. */
+  function getStrength() {
+    return sanitizeNumber(strengthEl.value, 0, 0.4, 0.22, false, 0.01);
+  }
+
+  /** Read export quality scale multiplier. */
+  function getQualityScale() {
+    return Math.max(0.25, Math.min(2, Number(qualityScaleEl.value) || 1));
+  }
+
+  /** Read total frame count for export. */
+  function getFrameCount() {
+    return sanitizeNumber(frameCountEl.value, 8, 72, 36, true);
+  }
+
+  /** Read GIF palette size. */
+  function getColorCount() {
+    return sanitizeNumber(colorCountEl.value, 16, 256, 128, true, 16);
+  }
+
+  /** Read how many seamless loops to encode. */
+  function getLoopCycles() {
+    return sanitizeNumber(loopCyclesEl.value, 1, 4, 1, true);
+  }
+
+  /** Bounce period in seconds (one squash cycle). */
+  function getBouncePeriod() {
+    return 1 / getFrequency();
+  }
+
+  /** Full 360° rotation period, or null if not spinning. */
+  function getRotationPeriod() {
+    var dps = Math.abs(getRotationDegPerSec());
+    if (dps < 0.01) return null;
+    return 360 / dps;
+  }
+
+  /**
+   * Duration of one seamless loop: LCM-ish of bounce & rotation periods.
+   * Caps at 12s per cycle before multiplying by loop count.
+   */
+  function computeLoopDuration() {
+    var tb = getBouncePeriod();
+    var tr = getRotationPeriod();
+    var cycles = getLoopCycles();
+    var one = tb;
+
+    if (tr != null) {
+      var bestN = 1;
+      var bestErr = Infinity;
+      for (var n = 1; n <= 24; n++) {
+        var m = Math.round((n * tb) / tr);
+        if (m < 1) m = 1;
+        if (m > 24) continue;
+        var err = Math.abs(n * tb - m * tr);
+        if (err < bestErr) {
+          bestErr = err;
+          bestN = n;
+        }
+      }
+      one = bestN * tb;
+      if (one > 12) one = Math.min(12, Math.max(tb, tr));
+    }
+
+    var total = one * cycles;
+    if (total < 0.25) total = 0.25;
+    if (total > 16) total = 16;
+    return total;
+  }
+
+  /** Export pixel size from base buffer × quality scale. */
+  function getExportSize() {
+    var s = getQualityScale();
+    return evenSize(baseW * s, baseH * s);
+  }
+
+  /** Fingerprint of current export settings (invalidate cached estimate). */
+  function exportSettingsKey() {
+    return [
+      getQualityScale(),
+      getFrameCount(),
+      getColorCount(),
+      getLoopCycles(),
+      getFrequency(),
+      getRotationDegPerSec(),
+      getStrength(),
+      placeMode,
+      flipV ? 1 : 0,
+      baseW,
+      baseH
+    ].join("|");
+  }
+
+  /** Refresh summary line: loop duration, frames, resolution, size estimate. */
+  function updateExportSummary() {
+    if (!exportSummary) return;
+    if (!sourceImage) {
+      exportSummary.innerHTML = "导入图片后可导出。循环时长将按弹跳与旋转周期自动对齐。";
+      if (loopHint) loopHint.textContent = "循环 = 弹跳周期与旋转周期的最小公倍数近似";
+      return;
+    }
+    var dur = computeLoopDuration();
+    var frames = getFrameCount();
+    var size = getExportSize();
+    var fps = frames / dur;
+    var tb = getBouncePeriod();
+    var tr = getRotationPeriod();
+    var loopDesc =
+      tr == null
+        ? "弹跳 " + tb.toFixed(2) + "s × " + getLoopCycles()
+        : "弹跳 " + tb.toFixed(2) + "s / 旋转 " + tr.toFixed(2) + "s → 对齐 " + (dur / getLoopCycles()).toFixed(2) + "s × " + getLoopCycles();
+
+    exportSummary.innerHTML =
+      "循环时长 <strong>" +
+      dur.toFixed(2) +
+      "s</strong> · 帧数 <strong>" +
+      frames +
+      "</strong>（约 " +
+      fps.toFixed(1) +
+      " fps）· 分辨率 <strong>" +
+      size.w +
+      "×" +
+      size.h +
+      "</strong> · 预估大小 <strong>" +
+      estimatedSizeText +
+      "</strong>";
+    if (loopHint) loopHint.textContent = loopDesc;
+  }
+
+  /** Invalidate size estimate when settings change. */
+  function invalidateSizeEstimate() {
+    estimatedSizeText = "—（点「预估大小」）";
+    lastGifBlob = null;
+    lastGifKey = "";
+    updateExportSummary();
+  }
+
+  /**
+   * World Y offset so the plane's bottom edge stays on GROUND_Y after scale sy.
+   * Quad local bottom is at -planeH/2; after sy → -planeH/2*sy; ty = GROUND_Y + planeH/2*sy.
+   */
+  function groundedOffsetY(sy) {
+    return GROUND_Y + (planeH * 0.5) * sy;
+  }
+
+  /** Switch between center and ground placement; updates segmented button styles. */
+  function setPlaceMode(mode) {
+    placeMode = mode === "ground" ? "ground" : "center";
+    btnPlaceCenter.classList.toggle("active", placeMode === "center");
+    btnPlaceGround.classList.toggle("active", placeMode === "ground");
+    invalidateSizeEstimate();
+  }
+
+  btnPlaceCenter.addEventListener("click", function () {
+    setPlaceMode("center");
+  });
+  btnPlaceGround.addEventListener("click", function () {
+    setPlaceMode("ground");
+  });
+
+  /** Toggle vertical texture flip. */
+  function toggleFlipV() {
+    flipV = !flipV;
+    if (btnFlipV) btnFlipV.classList.toggle("active", flipV);
+    updateQuadUVs();
+    invalidateSizeEstimate();
+  }
+
+  if (btnFlipV) {
+    btnFlipV.addEventListener("click", toggleFlipV);
+  }
+
+  /** Enable or disable export controls. */
+  function setExportEnabled(on) {
+    btnExportGif.disabled = !on;
+    btnEstimateSize.disabled = !on;
+    btnPresetFull.disabled = !on;
+    btnPresetHalf.disabled = !on;
+    btnPreset2m.disabled = !on;
+    if (btnExportWebm && !btnExportWebm.hidden) btnExportWebm.disabled = !on;
+    updateExportSummary();
+  }
+
+  /** Show WebM button when MediaRecorder supports it. */
+  function initWebmButton() {
+    if (typeof MediaRecorder === "undefined" || !btnExportWebm) return;
+    var types = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+    var ok = types.some(function (t) {
+      try {
+        return MediaRecorder.isTypeSupported(t);
+      } catch (e) {
+        return false;
+      }
+    });
+    if (ok) {
+      btnExportWebm.hidden = false;
+      btnExportWebm.disabled = !sourceImage;
+    }
+  }
+
+  /** Fit source dimensions into MAX_EDGE for export pixel size. */
+  function computeBaseSize(nw, nh) {
+    var edge = Math.max(nw, nh, 256);
+    if (edge > MAX_EDGE) edge = MAX_EDGE;
+    return { w: edge, h: edge };
+  }
+
+  /** Size the textured plane so the longer edge is ~2 world units. */
+  function resizePlaneForImage(img) {
+    var iw = img.naturalWidth || img.width;
+    var ih = img.naturalHeight || img.height;
+    var aspect = iw / Math.max(1, ih);
+    if (aspect >= 1) {
+      planeW = 2;
+      planeH = 2 / aspect;
+    } else {
+      planeH = 2;
+      planeW = 2 * aspect;
+    }
+    updateQuadGeometry();
+  }
+
+  var scratchCanvas = document.createElement("canvas");
+  var scratchCtx = scratchCanvas.getContext("2d", { willReadFrequently: true });
+
+  /**
+   * Upload image via a 2D canvas so EXIF orientation is applied consistently,
+   * then into GL with Y-flip matching upright UVs (v=0 bottom, v=1 top).
+   */
+  function uploadTexture(img) {
+    var iw = img.naturalWidth || img.width;
+    var ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return;
+
+    if (scratchCanvas.width !== iw || scratchCanvas.height !== ih) {
+      scratchCanvas.width = iw;
+      scratchCanvas.height = ih;
+    }
+    scratchCtx.clearRect(0, 0, iw, ih);
+    scratchCtx.drawImage(img, 0, 0);
+
+    gl.bindTexture(gl.TEXTURE_2D, glTexture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, scratchCanvas);
+    hasTexture = true;
+  }
+
+  /** Load a File into an Image and refresh the 3D texture (import or replace). */
+  function loadFile(file) {
+    if (
+      !file ||
+      (!/^image\/(png|jpeg|jpg|gif)$/i.test(file.type) && !/\.(png|jpe?g|gif)$/i.test(file.name))
+    ) {
+      setStatus(fileStatus, "请选择 PNG、JPG 或 GIF 文件", "error");
+      return;
+    }
+
+    var replacing = !!sourceImage;
+
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+
+    objectUrl = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      sourceImage = img;
+      flipV = false;
+      if (btnFlipV) btnFlipV.classList.remove("active");
+      updateQuadUVs();
+      var size = computeBaseSize(img.naturalWidth || img.width, img.naturalHeight || img.height);
+      baseW = size.w;
+      baseH = size.h;
+      canvas.width = baseW;
+      canvas.height = baseH;
+      gl.viewport(0, 0, baseW, baseH);
+      resizePlaneForImage(img);
+      uploadTexture(img);
+      startTime = performance.now();
+      placeholder.classList.add("hidden");
+      setExportEnabled(true);
+      var dim =
+        (img.naturalWidth || img.width) + "×" + (img.naturalHeight || img.height);
+      setStatus(
+        fileStatus,
+        (replacing ? "已替换 · " : "") + file.name + " · " + dim + "（可再拖入替换）",
+        "ok"
+      );
+      setStatus(exportStatus, "", "");
+      invalidateSizeEstimate();
+    };
+    img.onerror = function () {
+      sourceImage = null;
+      hasTexture = false;
+      setExportEnabled(false);
+      placeholder.classList.remove("hidden");
+      setStatus(fileStatus, "图片加载失败", "error");
+    };
+    img.src = objectUrl;
+  }
+
+  /**
+   * Pick the first PNG/JPG/GIF from a FileList (drag-drop or file input).
+   * @returns {File|null}
+   */
+  function pickImageFile(fileList) {
+    if (!fileList || !fileList.length) return null;
+    for (var i = 0; i < fileList.length; i++) {
+      var f = fileList[i];
+      if (
+        /^image\/(png|jpeg|jpg|gif)$/i.test(f.type) ||
+        /\.(png|jpe?g|gif)$/i.test(f.name)
+      ) {
+        return f;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Extract an image File from ClipboardEvent.dataTransfer / clipboardData.
+   * @returns {File|null}
+   */
+  function pickImageFromClipboardData(clipboardData) {
+    if (!clipboardData) return null;
+    var items = clipboardData.items;
+    if (items) {
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (item.kind === "file" && /^image\//i.test(item.type)) {
+          var file = item.getAsFile();
+          if (file) {
+            var ext = (item.type.split("/")[1] || "png").replace("jpeg", "jpg");
+            if (!file.name || file.name === "image.png" || file.name === "blob") {
+              return new File([file], "clipboard." + ext, { type: item.type || file.type });
+            }
+            return file;
+          }
+        }
+      }
+    }
+    return pickImageFile(clipboardData.files);
+  }
+
+  /** True if the drag payload looks like files (so we can show drop UI). */
+  function dragHasFiles(e) {
+    var dt = e.dataTransfer;
+    if (!dt) return false;
+    if (dt.types) {
+      for (var i = 0; i < dt.types.length; i++) {
+        if (dt.types[i] === "Files") return true;
+      }
+    }
+    return !!(dt.files && dt.files.length);
+  }
+
+  /**
+   * Read image from system clipboard via Clipboard API (button click).
+   * Falls back to prompting Ctrl/Cmd+V when API unavailable.
+   */
+  async function pasteFromClipboardButton() {
+    if (!navigator.clipboard || !navigator.clipboard.read) {
+      setStatus(fileStatus, "请使用 Ctrl+V（Mac：⌘V）粘贴剪贴板图片", "error");
+      return;
+    }
+    try {
+      var items = await navigator.clipboard.read();
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var types = item.types || [];
+        for (var j = 0; j < types.length; j++) {
+          var type = types[j];
+          if (!/^image\//i.test(type)) continue;
+          var blob = await item.getType(type);
+          var ext = (type.split("/")[1] || "png").replace("jpeg", "jpg");
+          loadFile(new File([blob], "clipboard." + ext, { type: type }));
+          return;
+        }
+      }
+      setStatus(fileStatus, "剪贴板里没有图片", "error");
+    } catch (err) {
+      console.error(err);
+      setStatus(
+        fileStatus,
+        "无法读取剪贴板（需授权，或改用 Ctrl+V / ⌘V）",
+        "error"
+      );
+    }
+  }
+
+  /** Show export progress 0–1. */
+  function setProgress(ratio) {
+    if (ratio == null || ratio < 0) {
+      progressEl.classList.remove("active");
+      progressBar.style.width = "0%";
+      return;
+    }
+    progressEl.classList.add("active");
+    progressBar.style.width = Math.round(Math.min(1, ratio) * 100) + "%";
+  }
+
+  /**
+   * Compute squash scales and Y yaw for time t.
+   * @returns {{sx:number,sy:number,yaw:number}}
+   */
+  function poseAt(tSeconds) {
+    var freq = getFrequency();
+    var degPerSec = getRotationDegPerSec();
+    var k = getStrength();
+    var phase = 2 * Math.PI * freq * tSeconds;
+    var squash = Math.sin(phase);
+    return {
+      sx: 1 + k * squash,
+      sy: 1 - k * squash,
+      yaw: (degPerSec * tSeconds * Math.PI) / 180
+    };
+  }
+
+  /** Draw scene: white backdrop, optional grid, soft shadow, textured plane.
+   * @param {boolean} [showGrid=false] ground reference lines (never used for GIF export)
+   */
+  function drawScene(width, height, tSeconds, showGrid) {
+    gl.viewport(0, 0, width, height);
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    perspective(proj, (40 * Math.PI) / 180, width / Math.max(1, height), 0.1, 100);
+    lookAt(view, [0, 0.4, 5], [0, 0, 0], [0, 1, 0]);
+
+    if (showGrid) {
+      modelScaleRotateY(model, 1, 1, 1, 0);
+      multiply(tmp, view, model);
+      multiply(mvp, proj, tmp);
+
+      gl.useProgram(lineProg);
+      gl.uniformMatrix4fv(lineLoc.uMVP, false, mvp);
+      gl.uniform4f(lineLoc.uColor, 0.75, 0.78, 0.82, 0.9);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf);
+      gl.enableVertexAttribArray(lineLoc.aPos);
+      gl.vertexAttribPointer(lineLoc.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.LINES, 0, gridBuf._count);
+    }
+
+    var pose = poseAt(tSeconds);
+
+    // Soft black elliptical shadow under the image (follows Y rotation + bounce squash)
+    if (hasTexture) {
+      var land = Math.max(0, 1 - pose.sy);
+      var shX = planeW * 0.55 * pose.sx * (0.9 + land * 0.45);
+      var shZ = planeW * 0.32 * (0.9 + land * 0.35);
+      var shAlpha = 0.28 + land * 0.32;
+      modelShadowXZ(model, shX, shZ, pose.yaw, GROUND_Y);
+      multiply(tmp, view, model);
+      multiply(mvp, proj, tmp);
+
+      gl.useProgram(shadowProg);
+      gl.uniformMatrix4fv(shadowLoc.uMVP, false, mvp);
+      gl.uniform1f(shadowLoc.uAlpha, shAlpha);
+      gl.bindBuffer(gl.ARRAY_BUFFER, shadowBuf);
+      gl.enableVertexAttribArray(shadowLoc.aPos);
+      gl.vertexAttribPointer(shadowLoc.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, shadowUvBuf);
+      gl.enableVertexAttribArray(shadowLoc.aUv);
+      gl.vertexAttribPointer(shadowLoc.aUv, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    // Textured plane — center mode floats at origin; ground mode pins bottom to GROUND_Y
+    var ty = placeMode === "ground" ? groundedOffsetY(pose.sy) : 0;
+    modelScaleRotateY(model, pose.sx, pose.sy, 1, pose.yaw, ty);
+    multiply(tmp, view, model);
+    multiply(mvp, proj, tmp);
+
+    // Refresh animated GIF frames: draw through 2D canvas for stable orientation
+    if (sourceImage && hasTexture) {
+      try {
+        uploadTexture(sourceImage);
+      } catch (e) {
+        /* ignore security/tainted edge cases */
+      }
+    }
+
+    gl.useProgram(texProg);
+    gl.uniformMatrix4fv(texLoc.uMVP, false, mvp);
+    gl.uniform1f(texLoc.uHasTex, hasTexture ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, glTexture);
+    gl.uniform1i(texLoc.uTex, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.enableVertexAttribArray(texLoc.aPos);
+    gl.vertexAttribPointer(texLoc.aPos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadUvBuf);
+    gl.enableVertexAttribArray(texLoc.aUv);
+    gl.vertexAttribPointer(texLoc.aUv, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  /** Main preview loop — white bg, no reference grid (matches export). */
+  function tick(now) {
+    if (!exporting) {
+      drawScene(canvas.width, canvas.height, (now - startTime) / 1000, false);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+
+  fileInput.addEventListener("change", function () {
+    var f = pickImageFile(fileInput.files);
+    if (f) loadFile(f);
+    else if (fileInput.files && fileInput.files.length) {
+      setStatus(fileStatus, "请选择 PNG、JPG 或 GIF 文件", "error");
+    }
+    fileInput.value = "";
+  });
+
+  if (btnPaste) {
+    btnPaste.addEventListener("click", function () {
+      pasteFromClipboardButton();
+    });
+  }
+
+  // Ctrl+V / ⌘V：从剪贴板粘贴图片（导入或替换）
+  window.addEventListener("paste", function (e) {
+    var file = pickImageFromClipboardData(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    loadFile(file);
+  });
+
+  // Whole-page drag & drop: import or replace texture (counter avoids flicker on child enter/leave)
+  var dragDepth = 0;
+
+  window.addEventListener("dragenter", function (e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    document.body.classList.add("drop-active");
+  });
+
+  window.addEventListener("dragover", function (e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    document.body.classList.add("drop-active");
+  });
+
+  window.addEventListener("dragleave", function (e) {
+    e.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) document.body.classList.remove("drop-active");
+  });
+
+  window.addEventListener("drop", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth = 0;
+    document.body.classList.remove("drop-active");
+    var f = pickImageFile(e.dataTransfer && e.dataTransfer.files);
+    if (f) loadFile(f);
+    else setStatus(fileStatus, "请拖入 PNG、JPG 或 GIF 文件", "error");
+  });
+
+  /** Snap width/height to even positive integers. */
+  function evenSize(w, h) {
+    return {
+      w: Math.max(2, Math.floor(w / 2) * 2),
+      h: Math.max(2, Math.floor(h / 2) * 2)
+    };
+  }
+
+  /** Yield to the browser so UI can update during long encodes. */
+  function yieldToUi() {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, 0);
+    });
+  }
+
+  /**
+   * Render one frame at a target size into ImageData for GIF encoding.
+   */
+  function renderToImageData(width, height, tSeconds) {
+    var prevW = canvas.width;
+    var prevH = canvas.height;
+    canvas.width = width;
+    canvas.height = height;
+    drawScene(width, height, tSeconds, false);
+
+    var off = document.createElement("canvas");
+    off.width = width;
+    off.height = height;
+    var octx = off.getContext("2d", { willReadFrequently: true });
+    octx.drawImage(canvas, 0, 0, width, height);
+    var data = octx.getImageData(0, 0, width, height);
+
+    canvas.width = prevW;
+    canvas.height = prevH;
+    gl.viewport(0, 0, prevW, prevH);
+    return data;
+  }
+
+  /**
+   * Sample 3D frames for one seamless loop.
+   * Uses i/frameCount * duration so the last frame is not a duplicate of the first.
+   * @returns {Promise<{frames: ImageData[], delayCs: number, w: number, h: number}>}
+   */
+  async function captureFrames(width, height, durationSec, frameCount) {
+    var total = Math.max(2, frameCount | 0);
+    var delayCs = Math.max(2, Math.round((durationSec * 100) / total));
+    var frames = [];
+    var t0 = 0;
+
+    for (var i = 0; i < total; i++) {
+      var t = t0 + (i / total) * durationSec;
+      frames.push(renderToImageData(width, height, t));
+      if (i % 3 === 0) {
+        setProgress(0.15 * ((i + 1) / total));
+        await yieldToUi();
+      }
+    }
+    canvas.width = baseW;
+    canvas.height = baseH;
+    gl.viewport(0, 0, baseW, baseH);
+    return { frames: frames, delayCs: delayCs, w: width, h: height };
+  }
+
+  /**
+   * Encode ImageData frames to a GIF Blob using vendored gifenc.
+   * @param {number} maxColors palette size (2–256)
+   */
+  function encodeGif(capture, maxColors) {
+    if (!window.gifenc || !window.gifenc.GIFEncoder) {
+      throw new Error("GIF 编码器未加载（vendor/gifenc.js）");
+    }
+    var GIFEncoder = window.gifenc.GIFEncoder;
+    var quantize = window.gifenc.quantize;
+    var applyPalette = window.gifenc.applyPalette;
+    var gif = GIFEncoder();
+    var colors = Math.max(2, Math.min(256, maxColors | 0));
+
+    for (var i = 0; i < capture.frames.length; i++) {
+      var rgba = capture.frames[i].data;
+      var palette = quantize(rgba, colors);
+      var index = applyPalette(rgba, palette);
+      gif.writeFrame(index, capture.w, capture.h, {
+        palette: palette,
+        delay: capture.delayCs,
+        transparent: true,
+        dispose: 2
+      });
+    }
+    gif.finish();
+    return new Blob([gif.bytes()], { type: "image/gif" });
+  }
+
+  /** Trigger a browser download for a Blob. */
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 2000);
+  }
+
+  /** Format byte size for status text. */
+  function formatBytes(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  /** Lock UI while exporting. */
+  function setBusy(busy) {
+    exporting = busy;
+    setExportEnabled(!busy && !!sourceImage);
+  }
+
+  /**
+   * Build GIF blob from current panel settings (no download).
+   * @returns {Promise<{blob: Blob, w: number, h: number, duration: number, frames: number}>}
+   */
+  async function buildGifFromSettings(overrides) {
+    var o = overrides || {};
+    var scale = o.scale != null ? o.scale : getQualityScale();
+    var frames = o.frames != null ? o.frames : getFrameCount();
+    var colors = o.colors != null ? o.colors : getColorCount();
+    var duration = o.duration != null ? o.duration : computeLoopDuration();
+    var size = evenSize(baseW * scale, baseH * scale);
+    var capture = await captureFrames(size.w, size.h, duration, frames);
+    setProgress(0.45);
+    await yieldToUi();
+    var blob = encodeGif(capture, colors);
+    return { blob: blob, w: size.w, h: size.h, duration: duration, frames: frames };
+  }
+
+  /** Export GIF using current detailed settings. */
+  async function exportGif() {
+    if (!sourceImage) return;
+    commitAllNumericFields();
+    setBusy(true);
+    setStatus(exportStatus, "正在按循环时长采样…", "");
+    setProgress(0);
+
+    try {
+      var key = exportSettingsKey();
+      var result;
+      if (lastGifBlob && lastGifKey === key) {
+        result = {
+          blob: lastGifBlob,
+          w: getExportSize().w,
+          h: getExportSize().h,
+          duration: computeLoopDuration(),
+          frames: getFrameCount()
+        };
+      } else {
+        result = await buildGifFromSettings();
+        lastGifBlob = result.blob;
+        lastGifKey = key;
+        estimatedSizeText = formatBytes(result.blob.size);
+        updateExportSummary();
+      }
+      setProgress(1);
+      downloadBlob(result.blob, "bounce-" + result.w + "x" + result.h + "-" + result.frames + "f.gif");
+      setStatus(
+        exportStatus,
+        "已导出 · " +
+          formatBytes(result.blob.size) +
+          " · " +
+          result.w +
+          "×" +
+          result.h +
+          " · " +
+          result.frames +
+          " 帧 · " +
+          result.duration.toFixed(2) +
+          "s 循环",
+        "ok"
+      );
+    } catch (err) {
+      console.error(err);
+      setStatus(exportStatus, "导出失败：" + (err && err.message ? err.message : String(err)), "error");
+    } finally {
+      setBusy(false);
+      setTimeout(function () {
+        setProgress(-1);
+      }, 400);
+    }
+  }
+
+  /** Encode without download; update estimated size in summary. */
+  async function estimateGifSize() {
+    if (!sourceImage) return;
+    commitAllNumericFields();
+    setBusy(true);
+    setStatus(exportStatus, "正在估算 GIF 大小…", "");
+    setProgress(0);
+    try {
+      var result = await buildGifFromSettings();
+      lastGifBlob = result.blob;
+      lastGifKey = exportSettingsKey();
+      estimatedSizeText = formatBytes(result.blob.size);
+      updateExportSummary();
+      setProgress(1);
+      var over = result.blob.size > TWO_MB;
+      setStatus(
+        exportStatus,
+        "预估大小 " +
+          formatBytes(result.blob.size) +
+          (over ? "（超过 2MB）" : "（≤2MB 内）") +
+          " · " +
+          result.w +
+          "×" +
+          result.h +
+          " · " +
+          result.frames +
+          " 帧",
+        over ? "error" : "ok"
+      );
+    } catch (err) {
+      console.error(err);
+      setStatus(exportStatus, "估算失败：" + (err && err.message ? err.message : String(err)), "error");
+    } finally {
+      setBusy(false);
+      setTimeout(function () {
+        setProgress(-1);
+      }, 400);
+    }
+  }
+
+  /** Apply a quick preset into the detailed panel. */
+  function applyPreset(kind) {
+    if (kind === "full") {
+      qualityScaleEl.value = "1";
+      frameCountEl.value = "36";
+      frameCountNum.value = "36";
+      colorCountEl.value = "128";
+      colorCountNum.value = "128";
+      loopCyclesEl.value = "1";
+      loopCyclesNum.value = "1";
+    } else if (kind === "half") {
+      qualityScaleEl.value = "0.5";
+      frameCountEl.value = "24";
+      frameCountNum.value = "24";
+      colorCountEl.value = "96";
+      colorCountNum.value = "96";
+      loopCyclesEl.value = "1";
+      loopCyclesNum.value = "1";
+    } else if (kind === "2m") {
+      qualityScaleEl.value = "0.5";
+      frameCountEl.value = "20";
+      frameCountNum.value = "20";
+      colorCountEl.value = "64";
+      colorCountNum.value = "64";
+      loopCyclesEl.value = "1";
+      loopCyclesNum.value = "1";
+    }
+    invalidateSizeEstimate();
+  }
+
+  /** Export while stepping down settings until ≤2MB (or best effort). */
+  async function exportGifUnder2MB() {
+    if (!sourceImage) return;
+    commitAllNumericFields();
+    applyPreset("2m");
+    setBusy(true);
+    setStatus(exportStatus, "正在压缩至 ≤2MB…", "");
+    setProgress(0);
+
+    var attempts = [
+      { scale: 0.5, frames: 20, colors: 64 },
+      { scale: 0.4, frames: 18, colors: 48 },
+      { scale: 0.35, frames: 16, colors: 40 },
+      { scale: 0.3, frames: 14, colors: 32 },
+      { scale: 0.25, frames: 12, colors: 24 },
+      { scale: 0.2, frames: 10, colors: 16 }
+    ];
+    var duration = computeLoopDuration();
+
+    try {
+      var best = null;
+      for (var i = 0; i < attempts.length; i++) {
+        var a = attempts[i];
+        qualityScaleEl.value = String(a.scale);
+        frameCountEl.value = String(a.frames);
+        frameCountNum.value = String(a.frames);
+        colorCountEl.value = String(a.colors);
+        colorCountNum.value = String(a.colors);
+        setStatus(
+          exportStatus,
+          "尝试 " + (i + 1) + "/" + attempts.length + "：scale=" + a.scale + " frames=" + a.frames + " colors=" + a.colors,
+          ""
+        );
+        setProgress(i / attempts.length);
+        await yieldToUi();
+
+        var result = await buildGifFromSettings({
+          scale: a.scale,
+          frames: a.frames,
+          colors: a.colors,
+          duration: duration
+        });
+        best = result;
+
+        if (result.blob.size <= TWO_MB) {
+          lastGifBlob = result.blob;
+          lastGifKey = exportSettingsKey();
+          estimatedSizeText = formatBytes(result.blob.size);
+          updateExportSummary();
+          downloadBlob(result.blob, "bounce-2mb-" + result.w + "x" + result.h + ".gif");
+          setProgress(1);
+          setStatus(
+            exportStatus,
+            "已导出 ≤2MB · " + formatBytes(result.blob.size) + " · " + result.w + "×" + result.h + " · " + a.frames + " 帧",
+            "ok"
+          );
+          return;
+        }
+      }
+
+      if (best) {
+        lastGifBlob = best.blob;
+        estimatedSizeText = formatBytes(best.blob.size);
+        updateExportSummary();
+        downloadBlob(best.blob, "bounce-2mb-oversize-" + best.w + "x" + best.h + ".gif");
+        setStatus(
+          exportStatus,
+          "无法压到 2MB（最近 " + formatBytes(best.blob.size) + "），已下载最接近结果",
+          "error"
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus(exportStatus, "导出失败：" + (err && err.message ? err.message : String(err)), "error");
+    } finally {
+      setBusy(false);
+      setTimeout(function () {
+        setProgress(-1);
+      }, 400);
+    }
+  }
+
+  /**
+   * Record the live WebGL canvas to WebM for one seamless loop duration.
+   */
+  async function exportWebm() {
+    if (!sourceImage || typeof MediaRecorder === "undefined") return;
+    commitAllNumericFields();
+
+    var mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(function (t) {
+      try {
+        return MediaRecorder.isTypeSupported(t);
+      } catch (e) {
+        return false;
+      }
+    });
+    if (!mime) {
+      setStatus(exportStatus, "当前浏览器不支持 WebM 录制", "error");
+      return;
+    }
+
+    setBusy(true);
+    setStatus(exportStatus, "正在录制 WebM…", "");
+    setProgress(0);
+
+    var duration = computeLoopDuration();
+    var stream = canvas.captureStream(30);
+    var chunks = [];
+    var recorder;
+
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000 });
+    } catch (e) {
+      recorder = new MediaRecorder(stream, { mimeType: mime });
+    }
+
+    recorder.ondataavailable = function (e) {
+      if (e.data && e.data.size) chunks.push(e.data);
+    };
+
+    var done = new Promise(function (resolve, reject) {
+      recorder.onstop = resolve;
+      recorder.onerror = function (ev) {
+        reject(ev.error || new Error("MediaRecorder error"));
+      };
+    });
+
+    try {
+      startTime = performance.now();
+      recorder.start(100);
+      var t0 = performance.now();
+      await new Promise(function (resolve) {
+        function poll() {
+          var elapsed = (performance.now() - t0) / 1000;
+          setProgress(Math.min(0.95, elapsed / duration));
+          if (elapsed >= duration) resolve();
+          else requestAnimationFrame(poll);
+        }
+        requestAnimationFrame(poll);
+      });
+
+      recorder.stop();
+      stream.getTracks().forEach(function (t) {
+        t.stop();
+      });
+      await done;
+      var blob = new Blob(chunks, { type: mime.split(";")[0] });
+      downloadBlob(blob, "bounce-" + canvas.width + "x" + canvas.height + ".webm");
+      setProgress(1);
+      setStatus(exportStatus, "已导出 WebM · " + formatBytes(blob.size) + " · " + duration.toFixed(2) + "s", "ok");
+    } catch (err) {
+      console.error(err);
+      setStatus(exportStatus, "WebM 导出失败：" + (err && err.message ? err.message : String(err)), "error");
+      try {
+        if (recorder && recorder.state !== "inactive") recorder.stop();
+      } catch (e2) {
+        /* ignore */
+      }
+      stream.getTracks().forEach(function (t) {
+        t.stop();
+      });
+    } finally {
+      setBusy(false);
+      setTimeout(function () {
+        setProgress(-1);
+      }, 400);
+    }
+  }
+
+  btnExportGif.addEventListener("click", function () {
+    exportGif();
+  });
+  btnEstimateSize.addEventListener("click", function () {
+    estimateGifSize();
+  });
+  btnPresetFull.addEventListener("click", function () {
+    applyPreset("full");
+  });
+  btnPresetHalf.addEventListener("click", function () {
+    applyPreset("half");
+  });
+  btnPreset2m.addEventListener("click", function () {
+    exportGifUnder2MB();
+  });
+  if (btnExportWebm) {
+    btnExportWebm.addEventListener("click", function () {
+      exportWebm();
+    });
+  }
+
+  ;[
+    freqEl,
+    freqNum,
+    rotEl,
+    rotNum,
+    strengthEl,
+    strengthNum,
+    qualityScaleEl,
+    frameCountEl,
+    frameCountNum,
+    colorCountEl,
+    colorCountNum,
+    loopCyclesEl,
+    loopCyclesNum
+  ].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener("input", invalidateSizeEstimate);
+    el.addEventListener("change", invalidateSizeEstimate);
+  });
+
+  initWebmButton();
+  invalidateSizeEstimate();
+  setStatus(fileStatus, "页面已就绪 · 请导入图片", "ok");
+
+  // Only <summary> toggles fold; clicks inside parameter body must not affect open state.
+  var exportDetailsBody = document.getElementById("exportDetailsBody");
+  if (exportDetailsBody) {
+    exportDetailsBody.addEventListener("click", function (e) {
+      e.stopPropagation();
+    });
+  }
+
+  /** Public helpers for tests and optional deep-link loading. */
+  window.BounceTexture = {
+    loadUrl: function (url, filename) {
+      return fetch(url)
+        .then(function (r) {
+          if (!r.ok) throw new Error("fetch failed " + r.status);
+          return r.blob();
+        })
+        .then(function (blob) {
+          loadFile(new File([blob], filename || "image.png", { type: blob.type || "image/png" }));
+        });
+    },
+    exportGifFull: function () {
+      applyPreset("full");
+      return exportGif();
+    }
+  };
+})();
+
+  </script>
+
+</body>
+</html>
